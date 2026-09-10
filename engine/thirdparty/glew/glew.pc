@@ -1,6 +1,6 @@
-prefix=E:/Udemy/OllieEngineDevelopment/out/install/x64-Debug
+prefix=C:/OllieEngine/out/install/x64-Debug
 exec_prefix=${prefix}
-libdir=E:/Udemy/OllieEngineDevelopment/out/install/x64-Debug/lib
+libdir=C:/OllieEngine/out/install/x64-Debug/lib
 includedir=${prefix}/include
 
 Name: glew

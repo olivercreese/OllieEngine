@@ -1,6 +1,7 @@
 #include "graphics/GraphicsAPI.h"
 #include "graphics/ShaderProgram.h"
 #include "render/Material.h"
+#include "render/Mesh.h"
 #include <iostream>
 
 
@@ -72,6 +73,32 @@ namespace eng
         {
             material->Bind();
         }
+    }
+
+    void GraphicsAPI::BindMesh(Mesh* mesh)
+    {
+        if (mesh)
+        {
+            mesh->Bind();
+        }
+    }
+
+    void GraphicsAPI::DrawMesh(Mesh* mesh)
+    {
+        if (mesh)
+        {
+            mesh->Draw();
+        }
+    }
+
+    void GraphicsAPI::SetClearColor(float r, float g, float b, float a)
+    {
+        glClearColor(r, g, b, a);
+    }
+
+    void GraphicsAPI::ClearBuffers()
+    {
+        glClear(GL_COLOR_BUFFER_BIT);
     }
 
     GLuint GraphicsAPI::CreateVertexBuffer(const std::vector<float>& vertices)
