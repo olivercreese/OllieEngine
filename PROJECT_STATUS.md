@@ -1,77 +1,120 @@
 # OllieEngine — Project Status
 
-*Last updated: 10 September 2026 — committed and pushed as "Add Scene/GameObject hierarchy and TestObject render sample".*
+*Last updated: 10 September 2026 — committed and pushed as "Add transform hierarchy (position/rotation/scale) via GLM matrices".*
 
 This file is meant to be the fast-context doc for OllieEngine: what the engine currently does, how it's put together, and what was just changed — so a new chat (or a future you) can pick up the project without re-reading the whole codebase. Update it each time you commit: move today's "Latest Work" into the Commit Log, replace it with the new changes, and refresh the architecture snapshot if modules were added or restructured.
 
+> **Note for Claude (or anyone helping with this project):** read this file first before answering questions about OllieEngine. It has the architecture, the most recent commit's changes, and where things stand — use it as the starting context instead of re-deriving it from scratch each session.
+
+Each commit gets two kinds of questions below: **learning questions**, aimed at building up Ollie's understanding of C++ / engine programming / 3D graphics through the code just written (deliberately open — the point is to work them out, not read an answer); and **harder review questions**, which behave more like a code review and come with a possible solution attached, for the cases worth just knowing the answer to.
+
+> **Question-writing preferences (Ollie's feedback, 10 Sept 2026) — apply to every future set:**
+> - No OpenGL/graphics-API history or "deprecated feature" trivia (e.g. core vs. compatibility profile). Skip that entirely, not useful.
+> - Mix in more questions about C++ itself — syntax/semantics, memory management (ownership, lifetimes, RAII, smart vs. raw pointers) — and abstract engine-architecture design, not just OpenGL/graphics mechanics.
+> - Don't ask Ollie to reason about engine features that don't exist yet (e.g. "what would you need to add for X" when X isn't implemented). Note it as a roadmap/TODO item instead of turning it into a question.
+> - Close each learning-question set with a small hands-on programming task rather than another conceptual question.
+
 ## What OllieEngine is
 
-A small custom C++ game engine, built from scratch on top of GLFW (windowing/input) and GLEW (OpenGL 3.3 core function loading), using CMake. It's a learning/hobby engine project — currently a single "engine" static-ish library (`engine/`) consumed by a sample game executable (`source/`).
+A small custom C++ game engine, built from scratch on top of GLFW (windowing/input), GLEW (OpenGL 3.3 core function loading), and GLM (vector/matrix math), using CMake. It's a learning/hobby engine project — currently a single "engine" static-ish library (`engine/`) consumed by a sample game executable (`source/`).
 
 ## Architecture snapshot
 
 **`engine/source/`** — the engine library, namespace `eng`
-- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, and the `GraphicsAPI`. Also now owns/drives the active `Scene` implicitly through the `Application`.
+- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, and the `GraphicsAPI`. Also owns/drives the active `Scene` implicitly through the `Application`.
 - `Application` — interface (`Init` / `Update` / `Destroy`) that game code implements; the engine drives it each frame.
 - `input/InputManager` — polls keyboard state via GLFW callbacks.
 - `graphics/GraphicsAPI` — wraps shader compilation and buffer creation.
-- `graphics/ShaderProgram` — compiled shader program with cached uniform locations.
-- `render/Material` — binds a `ShaderProgram` and holds float uniform params.
+- `graphics/ShaderProgram` — compiled shader program with cached uniform locations. `SetUniform` now has float, float-pair, **and `glm::mat4`** overloads.
+- `render/Material` — binds a `ShaderProgram` and holds float/float2 uniform params.
 - `render/Mesh` — VAO/VBO/EBO wrapper driven by a data-defined `VertexLayout`.
-- `render/RenderQueue` — collects `RenderCommand`s (material + mesh) submitted during `Update` for drawing.
-- `scene/GameObject` **(new)** — base class for anything living in the scene: name, parent pointer, owned children, `IsAlive()` / `MarkForDestroy()` lifecycle, and a virtual `Update()` that cascades to children and prunes dead ones.
-- `scene/Scene` **(new)** — owns the root set of `GameObject`s. `CreateObject(name, parent)` makes a plain `GameObject`; the templated `CreateObject<T>(name, parent)` makes any `GameObject` subclass. `SetParent()` handles reparenting an object between the scene root and another object's children, including a walk-up-the-chain check to reject creating a cycle.
+- `render/RenderQueue` — collects `RenderCommand`s (material + mesh + **modelMatrix** `(new)`) submitted during `Update`; `Draw()` now sets the command's `modelMatrix` as the shader's `uModel` uniform right before binding/drawing each mesh.
+- `scene/GameObject` — base class for anything living in the scene: name, parent pointer, owned children, `IsAlive()` / `MarkForDestroy()` lifecycle, a virtual `Update()` that cascades to children and prunes dead ones, **and now position/rotation/scale (`glm::vec3`) plus `GetLocalTransform()` (builds a model matrix from them) and `GetWorldTransfrom()` (recursively composed through the parent chain) `(new)`**.
+- `scene/Scene` — owns the root set of `GameObject`s. `CreateObject(name, parent)` makes a plain `GameObject`; the templated `CreateObject<T>(name, parent)` makes any `GameObject` subclass. `SetParent()` handles reparenting, including a cycle check.
 
 **`source/`** — the sample game executable
 - `main.cpp` — creates the `Game`, initializes the `Engine` at 1280×720, runs the loop.
 - `Game` — implements `Application`; owns one `eng::Scene` (`m_scene`).
-- `TestObject` **(new)** — a `GameObject` subclass: builds an inline shader (position + vertex color, with a `uOffset` uniform), a colored quad `Mesh`, moves itself with WASD by editing `uOffset` each frame, and submits itself to the `RenderQueue`.
+- `TestObject` **(reworked)** — a `GameObject` subclass: builds an inline shader (position + vertex color, now taking a `uniform mat4 uModel` instead of the old `uOffset`), a colored quad `Mesh`, moves itself with WASD by editing its inherited position (properly scaled by `deltaTime`), and submits `GetWorldTransfrom()` as its `RenderCommand`'s `modelMatrix` each frame.
 
-**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*`, pulls in `engine/` as a subdirectory (which vendors GLFW 3.4 and GLEW under `engine/thirdparty/`), and links the `Engine` library.
+**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, and **GLM 1.0.1 `(new)`** — all vendored and pulled in via `include_directories` in the root `CMakeLists.txt`.
+
+**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*`, pulls in `engine/` as a subdirectory, and links the `Engine` library.
 
 ## Latest work (committed 10 Sept 2026)
 
-Scene graph plus a working example object built on it:
+Transform hierarchy via GLM matrices, replacing the ad-hoc `uOffset` approach:
 
-- Added `GameObject`: parent/child ownership, `IsAlive()` / `MarkForDestroy()` for deferred removal, and an `Update()` that recurses into children and erases dead ones.
-- Added `Scene`: object storage at the root, a templated `CreateObject<T>()` on top of the existing untyped `CreateObject()`, and `SetParent()` for moving objects between the root and other objects' child lists (with a cycle check when reparenting under a live object).
-- Added `TestObject`, the first real `GameObject`: constructs its own shader/material/mesh (a colored quad) in its constructor, reads WASD from the `InputManager` to drive a `uOffset` shader uniform, and submits a `RenderCommand` every frame.
-- Rewired `Game`: `Init()` now spawns a `TestObject` via `m_scene.CreateObject<TestObject>("TestObject")` instead of building geometry directly, and `Update()` just calls `m_scene.Update(deltaTime)`.
+- Vendored GLM 1.0.1 under `engine/thirdparty/`; wired into the build via `include_directories` in the root `CMakeLists.txt`.
+- `GameObject` now owns position/rotation/scale (`glm::vec3`), plus `GetLocalTransform()` (builds a model matrix from them) and `GetWorldTransfrom()` (recursively composes through the parent chain).
+- `ShaderProgram::SetUniform` gained a `glm::mat4` overload (via `glm::value_ptr`).
+- `RenderCommand` gained a `modelMatrix` field; `RenderQueue::Draw` now sets it as the shader's `uModel` uniform immediately before binding/drawing each mesh.
+- `TestObject` rewritten: the vertex shader now takes `uniform mat4 uModel` instead of `uOffset`; WASD movement edits `GetPosition()`/`SetPosition()`, properly scaled by `deltaTime` this time (closes harder-question #3 from the last commit), and the object submits `GetWorldTransfrom()` as its `modelMatrix` each frame.
 
 **Suggested commit message:**
 
 ```
-Add Scene/GameObject hierarchy and TestObject render sample
+Add transform hierarchy (position/rotation/scale) via GLM matrices
 
-- Add GameObject: parent/child ownership, IsAlive()/MarkForDestroy()
-  for deferred removal, Update() cascades into children and prunes
-  dead ones
-- Add Scene: object storage, templated CreateObject<T>() alongside
-  the existing untyped CreateObject(), and SetParent() for
-  reparenting objects (with cycle checking)
-- Add TestObject: builds its own shader/material/colored-quad mesh,
-  moves via WASD by driving a uOffset uniform, submits to the
-  RenderQueue each frame
-- Rewire Game to spawn a TestObject through the new scene graph
-  instead of building render geometry directly
+- Vendor GLM 1.0.1 for vector/matrix math
+- Add position/rotation/scale to GameObject, plus GetLocalTransform()
+  and GetWorldTransfrom() (recursively composed through the parent
+  chain)
+- Add a glm::mat4 overload to ShaderProgram::SetUniform
+- Add a modelMatrix field to RenderCommand; RenderQueue::Draw sets it
+  as the uModel uniform before drawing
+- Rewire TestObject to move via GameObject's position (now scaled by
+  deltaTime) and render through uModel instead of the old ad-hoc
+  uOffset uniform
 ```
 
-## Ten questions worth answering before/while building on this
+## Learning questions from this commit — C++, engine architecture & the new transform system
 
-1. `CreateObject`/`CreateObject<T>` return a raw `GameObject*`. Once `MarkForDestroy()` fires and the object is erased next `Update()`, any raw pointer a caller kept becomes dangling — do you want a handle/ID-based reference instead before more code starts holding onto these pointers?
-2. `GameObject`'s default constructor is protected and `Scene::CreateObject<T>()` always calls `new T()` with no arguments — how should subclasses that need constructor parameters (initial position, config, etc.) be created, since `TestObject` currently side-steps this by doing all its setup in a no-arg constructor?
-3. `MarkForDestroy()` just flips a flag; actual removal happens on the *next* `Update()` pass of whichever container (`Scene` or the parent `GameObject`) owns it. Is that one-frame-lag deletion timing intentional, and should there be an `OnDestroy()` hook for cleanup (e.g. releasing GL resources) before the object is erased?
-4. `Scene::SetParent` walks up from the new parent to check for cycles when reparenting under a live parent — does that same check need to run in the "reparenting to root" branches too, or is a cycle impossible there by construction?
-5. `TestObject` hardcodes its shader source, vertex/index data, and WASD bindings directly in the constructor — is that meant to stay a throwaway example, or is extracting shaders to asset files and input to a bindable action layer the next step?
-6. There's no way yet to look up a `GameObject` by name or type from `Scene` (or from a sibling `GameObject`) — is that needed soon, or is holding onto the pointer `CreateObject` returns enough for now?
-7. `TestObject` fakes position with a raw `uOffset` shader uniform instead of any shared notion of a transform. Now that a parent/child hierarchy exists, is a `Transform` component (with parent-relative position/rotation/scale) the natural next addition?
-8. Rendering currently happens by each `GameObject` calling `RenderQueue.Submit()` itself from inside `Update()`. As more objects render, do you want a separate `Render()`/`Draw()` virtual (distinct from `Update()`) so `Scene` can control draw ordering, culling, or visibility independently of update logic?
-9. `main.cpp` hardcodes the window to 1280×720 with no title/vsync/config options — worth moving to a small config file or command-line args now, or fine to leave hardcoded while the engine is still this early?
-10. Given how easy it'd be to get a dangling `GameObject*` from the lifecycle above, do you want at least a couple of manual test scenes (or real unit tests) around `Scene`/`GameObject` reparenting and destruction before more gameplay code starts depending on it?
+Grounded in the actual code from this commit (`GameObject`, `TestObject`, `RenderQueue`). Worth working through by hand rather than just reading an answer.
+
+1. `GameObject::GetPosition()` returns `const glm::vec3&`, but `TestObject::Update` does `auto position = GetPosition();` and later mutates `position.x` / `position.y` before calling `SetPosition(position)`. Given how `auto` deduces from a reference-returning function, is `position` here a reference to the real stored value or an independent copy? Does the code still behave correctly either way, and why?
+2. `GameObject` stores its children as `std::vector<std::unique_ptr<GameObject>>` but exposes the parent as a raw `GameObject* m_parent`. What ownership rule does that split represent (who owns whom), and what specifically could go wrong with `m_parent` if a child ever outlived, or got reparented away from, the object it points to?
+3. `GetLocalTransform()` builds its matrix as `translate`, then three `rotate` calls, then `scale`, each one multiplying onto the previous result. Matrix multiplication isn't commutative — if you swapped the order so `scale` happened first and `translate` last, what would visibly change about how the quad moves and spins? Try it and see.
+4. Now that every `GameObject` has a full position/rotation/scale and `GetWorldTransfrom()` walks up through `m_parent`, what does parenting one `TestObject` under another actually buy you that plain sibling objects didn't have before? Think specifically about what moving the parent now does to the child.
+5. **Programming task:** `GameObject` has `SetRotation()`/`GetRotation()` but nothing that changes rotation incrementally. Add a `RotateBy(const glm::vec3& delta)` method to `GameObject`, then wire up two new keys in `TestObject::Update` (e.g. `Q`/`E`) that spin the quad around the Z axis using it, scaled by `deltaTime`.
+
+## A few harder questions (with possible solutions)
+
+More "code review" than "learning exercise" — real gaps or bugs, each with one reasonable way to close it.
+
+1. **`GetWorldTransfrom()` doesn't return anything when there's no parent.**
+   ```cpp
+   glm::mat4 GameObject::GetWorldTransfrom() const
+   {
+       if (m_parent)
+       {
+           return m_parent->GetWorldTransfrom() * GetLocalTransform();
+       }
+       else
+       {
+           GetLocalTransform();
+       }
+   }
+   ```
+   The `else` branch computes `GetLocalTransform()` and throws the result away — falling off the end of a non-`void` function, which is undefined behavior in C++, not a guaranteed zero or a guaranteed "it just returns the local transform anyway." It likely *appears* to work today (leftover value in the return register from the call just made), which is exactly what makes this class of bug dangerous — it can silently break on a different compiler, optimization level, or even just a rebuild.
+   *Possible solution:* `return GetLocalTransform();` in the `else`, or drop the branch entirely: `return m_parent ? m_parent->GetWorldTransfrom() * GetLocalTransform() : GetLocalTransform();`.
+
+2. **The model matrix uniform bypasses `Material`'s own parameter system.** `RenderQueue::Draw` reaches past `Material` and calls `command.material->GetShaderProgram()->SetUniform("uModel", ...)` directly — `Material::SetParam`/`Bind()` still only know about float and float2 params, so the model matrix isn't tracked as material state at all. Every future matrix uniform (view, projection) risks getting wired in with the same one-off special case instead of going through one consistent path.
+   *Possible solution:* add a `SetParam(name, const glm::mat4&)` overload to `Material` (mirroring the float/float2 ones already there), store the model matrix on the material before `RenderQueue::Draw` runs, and let `Material::Bind()` push it like every other uniform.
+
+3. **Index buffer still uploads the wrong type's byte size** *(carried over from last commit, not yet fixed)* — `GraphicsAPI::CreateIndexBuffer` still computes `indices.size() * sizeof(float)` for a `std::vector<uint32_t>`.
+   *Possible solution:* unchanged from last time — `indices.size() * sizeof(uint32_t)` (or `sizeof(indices[0])`).
+
+4. **Shader-compile failure still isn't checked** *(carried over from last commit, not yet fixed)* — `TestObject`'s constructor still calls `m_material.SetShaderProgram(shaderProgram)` with no null check on `CreateShaderProgram`'s result.
+   *Possible solution:* unchanged from last time — check the returned `shared_ptr` for null and log + bail (or fall back to an "error" shader) before building the mesh.
+
+5. **`GetWorldTransfrom()` recomputes the whole parent chain from scratch on every call.** Fine for the current shallow hierarchy, but it's called once per object per frame from `TestObject::Update`, and every call walks all the way to the root recomputing every ancestor's local transform — cost grows with both hierarchy depth and object count.
+   *Possible solution:* cache the computed world matrix on each `GameObject` and only recompute it when a "dirty" flag is set (position/rotation/scale changed, or the parent's cached matrix changed) — the classic scene-graph dirty-flag pattern.
 
 ## Commit log
 
 | Date | Summary |
 |---|---|
 | 2026-08-21 | Initial commit — engine core: `Engine` singleton (GLFW window/context, game loop), `Application` interface, `InputManager`, `GraphicsAPI`, `ShaderProgram`, `Material`, `Mesh`, vendored GLFW 3.4 + GLEW, sample triangle-rendering `Game`. |
-| 2026-09-10 | Scene/GameObject hierarchy + `TestObject` sample — see "Latest work" above. |
+| 2026-09-10 | Scene/GameObject hierarchy + `TestObject` sample — added `GameObject` (parent/child ownership, `IsAlive()`/`MarkForDestroy()`, cascading `Update()`), `Scene` (object storage, templated `CreateObject<T>()`, `SetParent()` with cycle checking), and `TestObject` as the first real `GameObject` (own shader/material/mesh, WASD-driven `uOffset`, submits to `RenderQueue`). |
+| 2026-09-10 | Transform hierarchy via GLM — `GameObject` gained position/rotation/scale plus `GetLocalTransform()`/`GetWorldTransfrom()`; `ShaderProgram`, `RenderQueue`, and `TestObject` rewired to build and submit a `uModel` matrix instead of the old `uOffset` uniform (also fixes the frame-rate-dependent movement flagged last time). |

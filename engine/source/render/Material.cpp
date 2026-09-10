@@ -8,6 +8,11 @@ namespace eng
         m_shaderProgram = shaderProgram;
     }
 
+    ShaderProgram* Material::GetShaderProgram() 
+    {
+        return m_shaderProgram.get();
+    }
+
     void Material::SetParam(const std::string& name, float value)
     {
         m_floatParams[name] = value;
