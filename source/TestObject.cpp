@@ -12,11 +12,14 @@ TestObject::TestObject()
         out vec3 vColor;
 
         uniform mat4 uModel;
+        uniform mat4 uView;
+        uniform mat4 uProjection;
+
 
         void main()
         {
             vColor = color;
-            gl_Position = uModel * vec4(position, 1.0);
+            gl_Position = uProjection * uView * uModel * vec4(position, 1.0);
         }
     )";
 
@@ -34,7 +37,9 @@ TestObject::TestObject()
 
     auto& graphicsAPI = eng::Engine::GetInstance().GetGraphicsAPI();
     auto shaderProgram = graphicsAPI.CreateShaderProgram(vertexShaderSource, fragmentShaderSource);
-    m_material.SetShaderProgram(shaderProgram);
+
+    auto material = std::make_shared<eng::Material>();
+    material->SetShaderProgram(shaderProgram);
 
     std::vector<float> vertices =
     {
@@ -69,8 +74,8 @@ TestObject::TestObject()
         });
     vertexLayout.stride = sizeof(float) * 6;
 
-    m_mesh = std::make_shared<eng::Mesh>(vertexLayout, vertices, indices);
-
+    auto mesh = std::make_shared<eng::Mesh>(vertexLayout, vertices, indices);
+    AddComponent(new eng::MeshComponent(mesh, material));
 }
 
 void TestObject::Update(float deltaTime)
@@ -100,11 +105,5 @@ void TestObject::Update(float deltaTime)
     }
     SetPosition(position);
 
-    eng::RenderCommand command;
-    command.material = &m_material;
-    command.mesh = m_mesh.get();
-    command.modelMatrix = GetWorldTransfrom();
-
-    auto& renderQueue = eng::Engine::GetInstance().GetRenderQueue();
-    renderQueue.Submit(command);
+    
 }

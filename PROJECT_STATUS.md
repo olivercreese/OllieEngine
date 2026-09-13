@@ -1,6 +1,6 @@
 # OllieEngine — Project Status
 
-*Last updated: 10 September 2026 — committed and pushed as "Add transform hierarchy (position/rotation/scale) via GLM matrices".*
+*Last updated: 13 September 2026 — committed and pushed as "Add component system, camera, and full MVP transform pipeline".*
 
 This file is meant to be the fast-context doc for OllieEngine: what the engine currently does, how it's put together, and what was just changed — so a new chat (or a future you) can pick up the project without re-reading the whole codebase. Update it each time you commit: move today's "Latest Work" into the Commit Log, replace it with the new changes, and refresh the architecture snapshot if modules were added or restructured.
 
@@ -21,95 +21,94 @@ A small custom C++ game engine, built from scratch on top of GLFW (windowing/inp
 ## Architecture snapshot
 
 **`engine/source/`** — the engine library, namespace `eng`
-- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, and the `GraphicsAPI`. Also owns/drives the active `Scene` implicitly through the `Application`.
+- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, the `GraphicsAPI`, and the active `Scene`. Each frame it also pulls `CameraData` (view + projection matrices) from the scene's main camera and passes it into `RenderQueue::Draw`, using the current window's aspect ratio.
 - `Application` — interface (`Init` / `Update` / `Destroy`) that game code implements; the engine drives it each frame.
 - `input/InputManager` — polls keyboard state via GLFW callbacks.
 - `graphics/GraphicsAPI` — wraps shader compilation and buffer creation.
-- `graphics/ShaderProgram` — compiled shader program with cached uniform locations. `SetUniform` now has float, float-pair, **and `glm::mat4`** overloads.
+- `graphics/ShaderProgram` — compiled shader program with cached uniform locations; `SetUniform` has float, float-pair, and `glm::mat4` overloads.
 - `render/Material` — binds a `ShaderProgram` and holds float/float2 uniform params.
 - `render/Mesh` — VAO/VBO/EBO wrapper driven by a data-defined `VertexLayout`.
-- `render/RenderQueue` — collects `RenderCommand`s (material + mesh + **modelMatrix** `(new)`) submitted during `Update`; `Draw()` now sets the command's `modelMatrix` as the shader's `uModel` uniform right before binding/drawing each mesh.
-- `scene/GameObject` — base class for anything living in the scene: name, parent pointer, owned children, `IsAlive()` / `MarkForDestroy()` lifecycle, a virtual `Update()` that cascades to children and prunes dead ones, **and now position/rotation/scale (`glm::vec3`) plus `GetLocalTransform()` (builds a model matrix from them) and `GetWorldTransfrom()` (recursively composed through the parent chain) `(new)`**.
-- `scene/Scene` — owns the root set of `GameObject`s. `CreateObject(name, parent)` makes a plain `GameObject`; the templated `CreateObject<T>(name, parent)` makes any `GameObject` subclass. `SetParent()` handles reparenting, including a cycle check.
+- `render/RenderQueue` — collects `RenderCommand`s (material + mesh + modelMatrix). `Draw()` now also takes a `CameraData` (view + projection matrices) and sets `uModel`, `uView`, and `uProjection` on each command's shader before drawing.
+- `scene/GameObject` — name, parent pointer, owned children, `IsAlive()`/`MarkForDestroy()` lifecycle, position/rotation/scale, `GetLocalTransform()`/`GetWorldTransform()` (recursively composed through the parent chain — the earlier `GetWorldTransfrom()` typo and its missing-return bug are both fixed now). **Also now owns a component list** `(new)`: `AddComponent(Component*)` and templated `GetComponent<T>()`, looked up by a per-type runtime id.
+- `scene/Component` **(new)** — base class for per-object behaviour/data. `Component::StaticTypeId<T>()` hands out a stable id per type via a function-local static, and the `COMPONENT(Class)` macro generates the boilerplate `TypeId()`/`GetTypeId()` overrides. Holds a back-pointer (`m_owner`) to its `GameObject`, set by `AddComponent`.
+- `scene/components/MeshComponent` **(new)** — owns a `Mesh` + `Material` pair; every `Update()` it submits a `RenderCommand` (using the owner's `GetWorldTransform()`) to the engine's `RenderQueue`.
+- `scene/components/CameraComponent` **(new)** — computes a view matrix (`glm::inverse(owner's world transform)`) and a perspective projection matrix (`glm::perspective`, configurable FOV/near/far).
+- `scene/Scene` — owns the root set of `GameObject`s. `CreateObject(name, parent)` / templated `CreateObject<T>(name, parent)`; `SetParent()` reparents with a cycle check. **Also now**: `SetMainCamera()`/`GetMainCamera()` and `Clear()`.
 
 **`source/`** — the sample game executable
 - `main.cpp` — creates the `Game`, initializes the `Engine` at 1280×720, runs the loop.
-- `Game` — implements `Application`; owns one `eng::Scene` (`m_scene`).
-- `TestObject` **(reworked)** — a `GameObject` subclass: builds an inline shader (position + vertex color, now taking a `uniform mat4 uModel` instead of the old `uOffset`), a colored quad `Mesh`, moves itself with WASD by editing its inherited position (properly scaled by `deltaTime`), and submits `GetWorldTransfrom()` as its `RenderCommand`'s `modelMatrix` each frame.
+- `Game` — implements `Application`; owns one `eng::Scene* m_scene`. `Init()` now also creates a camera `GameObject` with a `CameraComponent`, positions it, and calls `SetMainCamera()` on the scene.
+- `TestObject` **(reworked)** — a `GameObject` subclass that no longer renders itself directly: it builds its shader/mesh/material in the constructor and hands them to a `MeshComponent` via `AddComponent()`. The vertex shader now does a full `uProjection * uView * uModel` transform (the engine's first real 3D pipeline) instead of the old model-only `uModel`. Still moves via WASD editing its inherited position, scaled by `deltaTime`.
 
-**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, and **GLM 1.0.1 `(new)`** — all vendored and pulled in via `include_directories` in the root `CMakeLists.txt`.
+**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, and GLM 1.0.1 — all vendored. `engine/CMakeLists.txt` was reworked this commit to use `target_include_directories(PUBLIC ...)` and link GLM as a proper `add_subdirectory` target (`glm`) via `target_link_libraries`, replacing the earlier bare `include_directories` approach. (The file still has the old pre-rework build script left in as commented-out dead code — harmless, but worth deleting in a cleanup pass.)
 
-**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*`, pulls in `engine/` as a subdirectory, and links the `Engine` library.
+**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*` and links the `Engine` library, which pulls in GLFW/GLEW/GLM as described above.
 
-## Latest work (committed 10 Sept 2026)
+## Latest work (committed 13 Sept 2026)
 
-Transform hierarchy via GLM matrices, replacing the ad-hoc `uOffset` approach:
+A component system, plus the engine's first real camera and full MVP transform pipeline:
 
-- Vendored GLM 1.0.1 under `engine/thirdparty/`; wired into the build via `include_directories` in the root `CMakeLists.txt`.
-- `GameObject` now owns position/rotation/scale (`glm::vec3`), plus `GetLocalTransform()` (builds a model matrix from them) and `GetWorldTransfrom()` (recursively composes through the parent chain).
-- `ShaderProgram::SetUniform` gained a `glm::mat4` overload (via `glm::value_ptr`).
-- `RenderCommand` gained a `modelMatrix` field; `RenderQueue::Draw` now sets it as the shader's `uModel` uniform immediately before binding/drawing each mesh.
-- `TestObject` rewritten: the vertex shader now takes `uniform mat4 uModel` instead of `uOffset`; WASD movement edits `GetPosition()`/`SetPosition()`, properly scaled by `deltaTime` this time (closes harder-question #3 from the last commit), and the object submits `GetWorldTransfrom()` as its `modelMatrix` each frame.
+- Added `Component` (base class, macro-based static type IDs via `COMPONENT(Class)`) and gave `GameObject` a component list: `AddComponent()` / templated `GetComponent<T>()`.
+- Added `MeshComponent` (submits a `RenderCommand` each `Update`, using the owner's world transform) and `CameraComponent` (view matrix via inverse world transform; perspective projection matrix).
+- Added `CameraData` (view + projection) to `RenderQueue::Draw`; it now sets `uView`/`uProjection` alongside `uModel` on every draw.
+- Added `Scene::SetMainCamera()`/`GetMainCamera()`; `Engine::Run()` now pulls camera data from the scene's main camera every frame, using the live window aspect ratio.
+- Fixed `GetWorldTransfrom()`'s typo (now `GetWorldTransform()`) **and** the missing `return` in its no-parent branch — closes harder-question #1 from the transform-hierarchy commit.
+- Reworked `engine/CMakeLists.txt` to link GLM as a proper target and use `target_include_directories(PUBLIC ...)`.
+- Rewired `TestObject` to own a `MeshComponent` instead of building render state directly; its vertex shader now does a full `uProjection * uView * uModel` transform.
+- `Game::Init()` now creates a camera `GameObject` with a `CameraComponent` and sets it as the scene's main camera.
 
 **Suggested commit message:**
 
 ```
-Add transform hierarchy (position/rotation/scale) via GLM matrices
+Add component system, camera, and full MVP transform pipeline
 
-- Vendor GLM 1.0.1 for vector/matrix math
-- Add position/rotation/scale to GameObject, plus GetLocalTransform()
-  and GetWorldTransfrom() (recursively composed through the parent
-  chain)
-- Add a glm::mat4 overload to ShaderProgram::SetUniform
-- Add a modelMatrix field to RenderCommand; RenderQueue::Draw sets it
-  as the uModel uniform before drawing
-- Rewire TestObject to move via GameObject's position (now scaled by
-  deltaTime) and render through uModel instead of the old ad-hoc
-  uOffset uniform
+- Add Component base class with macro-based static type IDs
+  (COMPONENT), GameObject::AddComponent()/GetComponent<T>()
+- Add MeshComponent (submits a RenderCommand each Update) and
+  CameraComponent (view matrix via inverse world transform,
+  perspective projection matrix)
+- Add CameraData (view + projection) to RenderQueue::Draw; sets
+  uView/uProjection alongside uModel each draw
+- Add Scene::SetMainCamera()/GetMainCamera(); Engine::Run() pulls
+  camera data from the scene's main camera each frame using the
+  current window aspect ratio
+- Fix GetWorldTransfrom() typo -> GetWorldTransform(), and fix the
+  missing return in its no-parent branch (closes last commit's
+  harder-question #1)
+- Rework engine/CMakeLists.txt to link GLM as a proper target and
+  use target_include_directories(PUBLIC ...)
+- Rewire TestObject to own a MeshComponent instead of building
+  render state directly; vertex shader now does a full
+  uProjection * uView * uModel transform
+- Game::Init() creates a camera GameObject with a CameraComponent
+  and sets it as the scene's main camera
 ```
 
-## Learning questions from this commit — C++, engine architecture & the new transform system
+## Learning questions from this commit — C++, engine architecture & the component system
 
-Grounded in the actual code from this commit (`GameObject`, `TestObject`, `RenderQueue`). Worth working through by hand rather than just reading an answer.
+Grounded in the actual code from this commit (`Component`, `GameObject::AddComponent`, `CameraComponent`, `Game::Init`). Worth working through by hand rather than just reading an answer.
 
-1. `GameObject::GetPosition()` returns `const glm::vec3&`, but `TestObject::Update` does `auto position = GetPosition();` and later mutates `position.x` / `position.y` before calling `SetPosition(position)`. Given how `auto` deduces from a reference-returning function, is `position` here a reference to the real stored value or an independent copy? Does the code still behave correctly either way, and why?
-2. `GameObject` stores its children as `std::vector<std::unique_ptr<GameObject>>` but exposes the parent as a raw `GameObject* m_parent`. What ownership rule does that split represent (who owns whom), and what specifically could go wrong with `m_parent` if a child ever outlived, or got reparented away from, the object it points to?
-3. `GetLocalTransform()` builds its matrix as `translate`, then three `rotate` calls, then `scale`, each one multiplying onto the previous result. Matrix multiplication isn't commutative — if you swapped the order so `scale` happened first and `translate` last, what would visibly change about how the quad moves and spins? Try it and see.
-4. Now that every `GameObject` has a full position/rotation/scale and `GetWorldTransfrom()` walks up through `m_parent`, what does parenting one `TestObject` under another actually buy you that plain sibling objects didn't have before? Think specifically about what moving the parent now does to the child.
-5. **Programming task:** `GameObject` has `SetRotation()`/`GetRotation()` but nothing that changes rotation incrementally. Add a `RotateBy(const glm::vec3& delta)` method to `GameObject`, then wire up two new keys in `TestObject::Update` (e.g. `Q`/`E`) that spin the quad around the Z axis using it, scaled by `deltaTime`.
+1. `AddComponent` is called like `AddComponent(new eng::MeshComponent(mesh, material));` — a raw `new`'d pointer, wrapped in a `unique_ptr` only once it's inside `emplace_back`. Why is accepting a `std::unique_ptr<Component>` parameter directly usually considered safer than this "raw pointer in, wrapped internally" pattern? What's the concrete way the current signature could leak?
+2. `Component::StaticTypeId<T>()` hands out a per-type id using `static size_t typeId = nextId++;` inside a function template. Why does one function-local static per template instantiation guarantee a stable, unique id for each component type — and what would break if `nextId` were an ordinary member variable instead of a function-local static?
+3. The codebase now has three places holding a *raw, non-owning* pointer to something owned elsewhere: `GameObject::m_parent`, `Game::m_scene` (the real owner is `Engine::m_currentScene`, a `unique_ptr`), and the local `camera` variable in `Game::Init()` (owned by the `Scene`). What's the one rule all three have to follow to stay safe, and what would go wrong if something used one of them after its real owner had already destroyed it?
+4. `CameraComponent::GetViewMatrix()` returns `glm::inverse(m_owner->GetWorldTransform())` rather than the world transform itself. In plain terms, why does "where the camera is in the world" need to be inverted to produce "how the world looks from the camera"?
+5. **Programming task:** add a `RemoveComponent<T>()` method to `GameObject` (mirroring `GetComponent<T>()`'s type-id lookup) that finds and erases a component of type `T` from `m_components`. Then use it somewhere in `TestObject` to prove it works — e.g. toggle the `MeshComponent` off and on with a key so the quad disappears and reappears.
 
 ## A few harder questions (with possible solutions)
 
 More "code review" than "learning exercise" — real gaps or bugs, each with one reasonable way to close it.
 
-1. **`GetWorldTransfrom()` doesn't return anything when there's no parent.**
-   ```cpp
-   glm::mat4 GameObject::GetWorldTransfrom() const
-   {
-       if (m_parent)
-       {
-           return m_parent->GetWorldTransfrom() * GetLocalTransform();
-       }
-       else
-       {
-           GetLocalTransform();
-       }
-   }
-   ```
-   The `else` branch computes `GetLocalTransform()` and throws the result away — falling off the end of a non-`void` function, which is undefined behavior in C++, not a guaranteed zero or a guaranteed "it just returns the local transform anyway." It likely *appears* to work today (leftover value in the return register from the call just made), which is exactly what makes this class of bug dangerous — it can silently break on a different compiler, optimization level, or even just a rebuild.
-   *Possible solution:* `return GetLocalTransform();` in the `else`, or drop the branch entirely: `return m_parent ? m_parent->GetWorldTransfrom() * GetLocalTransform() : GetLocalTransform();`.
+1. **Still no depth testing — and now it actually matters.** With a real camera and perspective projection in place, the moment a second 3D object exists (or this one rotates edge-on to another), submission order — not depth — decides what's drawn on top. Nothing in `GraphicsAPI` enables depth testing or clears a depth buffer.
+   *Possible solution:* `glEnable(GL_DEPTH_TEST)` once during setup, and clear `GL_DEPTH_BUFFER_BIT` alongside the color buffer in `ClearBuffers()`.
 
-2. **The model matrix uniform bypasses `Material`'s own parameter system.** `RenderQueue::Draw` reaches past `Material` and calls `command.material->GetShaderProgram()->SetUniform("uModel", ...)` directly — `Material::SetParam`/`Bind()` still only know about float and float2 params, so the model matrix isn't tracked as material state at all. Every future matrix uniform (view, projection) risks getting wired in with the same one-off special case instead of going through one consistent path.
-   *Possible solution:* add a `SetParam(name, const glm::mat4&)` overload to `Material` (mirroring the float/float2 ones already there), store the model matrix on the material before `RenderQueue::Draw` runs, and let `Material::Bind()` push it like every other uniform.
+2. **Direct uniform-pushing around `Material` has grown, not shrunk.** `RenderQueue::Draw` now sets *three* uniforms (`uModel`, `uView`, `uProjection`) straight on the shader program, still completely bypassing `Material::SetParam`/`Bind()` — which was flagged for just `uModel` last commit and hasn't been addressed since; there are now two more uniforms doing the same workaround.
+   *Possible solution:* unchanged from last time — give `Material` a `glm::mat4` overload for `SetParam`, and route all per-draw uniforms (model, view, projection) through `Material::Bind()` instead of reaching into the shader directly from `RenderQueue`.
 
-3. **Index buffer still uploads the wrong type's byte size** *(carried over from last commit, not yet fixed)* — `GraphicsAPI::CreateIndexBuffer` still computes `indices.size() * sizeof(float)` for a `std::vector<uint32_t>`.
-   *Possible solution:* unchanged from last time — `indices.size() * sizeof(uint32_t)` (or `sizeof(indices[0])`).
+3. **Index buffer still uploads the wrong type's byte size** *(open three commits running)* — `GraphicsAPI::CreateIndexBuffer` still computes `indices.size() * sizeof(float)` for a `std::vector<uint32_t>`.
+   *Possible solution:* unchanged — `indices.size() * sizeof(uint32_t)` (or `sizeof(indices[0])`).
 
-4. **Shader-compile failure still isn't checked** *(carried over from last commit, not yet fixed)* — `TestObject`'s constructor still calls `m_material.SetShaderProgram(shaderProgram)` with no null check on `CreateShaderProgram`'s result.
-   *Possible solution:* unchanged from last time — check the returned `shared_ptr` for null and log + bail (or fall back to an "error" shader) before building the mesh.
-
-5. **`GetWorldTransfrom()` recomputes the whole parent chain from scratch on every call.** Fine for the current shallow hierarchy, but it's called once per object per frame from `TestObject::Update`, and every call walks all the way to the root recomputing every ancestor's local transform — cost grows with both hierarchy depth and object count.
-   *Possible solution:* cache the computed world matrix on each `GameObject` and only recompute it when a "dirty" flag is set (position/rotation/scale changed, or the parent's cached matrix changed) — the classic scene-graph dirty-flag pattern.
+4. **Shader-compile failure still isn't checked** *(open three commits running)* — component-based or not, nothing checks `CreateShaderProgram`'s result for null before handing it to a `Material`.
+   *Possible solution:* unchanged — check the returned `shared_ptr` for null and log + bail (or fall back to an "error" shader) before continuing.
 
 ## Commit log
 
@@ -117,4 +116,5 @@ More "code review" than "learning exercise" — real gaps or bugs, each with one
 |---|---|
 | 2026-08-21 | Initial commit — engine core: `Engine` singleton (GLFW window/context, game loop), `Application` interface, `InputManager`, `GraphicsAPI`, `ShaderProgram`, `Material`, `Mesh`, vendored GLFW 3.4 + GLEW, sample triangle-rendering `Game`. |
 | 2026-09-10 | Scene/GameObject hierarchy + `TestObject` sample — added `GameObject` (parent/child ownership, `IsAlive()`/`MarkForDestroy()`, cascading `Update()`), `Scene` (object storage, templated `CreateObject<T>()`, `SetParent()` with cycle checking), and `TestObject` as the first real `GameObject` (own shader/material/mesh, WASD-driven `uOffset`, submits to `RenderQueue`). |
-| 2026-09-10 | Transform hierarchy via GLM — `GameObject` gained position/rotation/scale plus `GetLocalTransform()`/`GetWorldTransfrom()`; `ShaderProgram`, `RenderQueue`, and `TestObject` rewired to build and submit a `uModel` matrix instead of the old `uOffset` uniform (also fixes the frame-rate-dependent movement flagged last time). |
+| 2026-09-10 | Transform hierarchy via GLM — `GameObject` gained position/rotation/scale plus `GetLocalTransform()`/`GetWorldTransfrom()`; `ShaderProgram`, `RenderQueue`, and `TestObject` rewired to build and submit a `uModel` matrix instead of the old `uOffset` uniform (also fixed the frame-rate-dependent movement flagged last time). |
+| 2026-09-13 | Component system + camera + full MVP pipeline — added `Component`/`MeshComponent`/`CameraComponent`; `RenderQueue`/`Engine` now build real `uView`/`uProjection` matrices from the scene's main camera each frame; fixed the `GetWorldTransfrom()` typo and its missing-return bug; reworked `engine/CMakeLists.txt`'s GLM linking. |

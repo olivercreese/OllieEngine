@@ -4,6 +4,11 @@ namespace eng
 {
     void GameObject::Update(float deltaTime)
     {
+        for (auto& component : m_components)
+        {
+            component->Update(deltaTime);    
+        }
+
         for(auto it = m_children.begin(); it != m_children.end();)
         {
             if ((*it)->IsAlive())
@@ -41,6 +46,12 @@ namespace eng
     void GameObject::MarkForDestroy()
     {
         m_isAlive = false;
+    }
+
+    void GameObject::AddComponent(Component* comp)
+    {
+        m_components.emplace_back(comp);
+        comp->m_owner = this;
     }
 
     const glm::vec3& GameObject::GetPosition() const 
@@ -91,15 +102,15 @@ namespace eng
         return mat;
     }
 
-    glm::mat4 GameObject::GetWorldTransfrom() const
+    glm::mat4 GameObject::GetWorldTransform() const
     {
         if (m_parent)
         {
-            return m_parent->GetWorldTransfrom() * GetLocalTransform();
+            return m_parent->GetWorldTransform() * GetLocalTransform();
         }
         else
         {
-            GetLocalTransform();        
+            return GetLocalTransform();        
         }
     }
 }
