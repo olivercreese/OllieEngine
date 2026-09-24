@@ -1,18 +1,20 @@
 # OllieEngine — Project Status
 
-*Last updated: 13 September 2026 — committed and pushed as "Add component system, camera, and full MVP transform pipeline".*
+*Last updated: 24 September 2026 — committed and pushed as "Switch rotation to quaternions; fix index buffer size and PlayerController typo".*
 
 This file is meant to be the fast-context doc for OllieEngine: what the engine currently does, how it's put together, and what was just changed — so a new chat (or a future you) can pick up the project without re-reading the whole codebase. Update it each time you commit: move today's "Latest Work" into the Commit Log, replace it with the new changes, and refresh the architecture snapshot if modules were added or restructured.
 
 > **Note for Claude (or anyone helping with this project):** read this file first before answering questions about OllieEngine. It has the architecture, the most recent commit's changes, and where things stand — use it as the starting context instead of re-deriving it from scratch each session.
 
-Each commit gets two kinds of questions below: **learning questions**, aimed at building up Ollie's understanding of C++ / engine programming / 3D graphics through the code just written (deliberately open — the point is to work them out, not read an answer); and **harder review questions**, which behave more like a code review and come with a possible solution attached, for the cases worth just knowing the answer to.
+Each commit gets two kinds of questions below: **learning questions**, aimed at building up Ollie's understanding of C++ / engine programming / 3D graphics through the code just written (deliberately open — the point is to work them out, not read an answer); and **harder review questions**, which behave more like a code review and come with a possible solution attached, for the cases worth just knowing the answer to. The suggested commit message for each session is given in chat only, not kept in this file.
 
 > **Question-writing preferences (Ollie's feedback, 10 Sept 2026) — apply to every future set:**
 > - No OpenGL/graphics-API history or "deprecated feature" trivia (e.g. core vs. compatibility profile). Skip that entirely, not useful.
 > - Mix in more questions about C++ itself — syntax/semantics, memory management (ownership, lifetimes, RAII, smart vs. raw pointers) — and abstract engine-architecture design, not just OpenGL/graphics mechanics.
 > - Don't ask Ollie to reason about engine features that don't exist yet (e.g. "what would you need to add for X" when X isn't implemented). Note it as a roadmap/TODO item instead of turning it into a question.
 > - Close each learning-question set with a small hands-on programming task rather than another conceptual question.
+> - If a question set goes unanswered before the next session, merge its still-open items into the new set rather than dropping them. (Bugs flagged in "harder questions" stay listed regardless, until they're actually fixed in code — separate from whether the quiz questions themselves got answered.)
+> - Keep this file to one copy — the repo's own `PROJECT_STATUS.md`. Don't mirror it anywhere else.
 
 ## What OllieEngine is
 
@@ -21,94 +23,65 @@ A small custom C++ game engine, built from scratch on top of GLFW (windowing/inp
 ## Architecture snapshot
 
 **`engine/source/`** — the engine library, namespace `eng`
-- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, the `GraphicsAPI`, and the active `Scene`. Each frame it also pulls `CameraData` (view + projection matrices) from the scene's main camera and passes it into `RenderQueue::Draw`, using the current window's aspect ratio.
+- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, the `GraphicsAPI`, and the active `Scene`. Registers GLFW callbacks for keyboard, mouse buttons, and cursor position. Each frame it pulls `CameraData` (view + projection) from the scene's main camera, draws, swaps buffers, then resets the input manager's "old" mouse position to the current one.
 - `Application` — interface (`Init` / `Update` / `Destroy`) that game code implements; the engine drives it each frame.
-- `input/InputManager` — polls keyboard state via GLFW callbacks.
-- `graphics/GraphicsAPI` — wraps shader compilation and buffer creation.
+- `input/InputManager` — polls keyboard state via GLFW callbacks; also tracks mouse button state and old/new cursor position (for computing per-frame mouse deltas).
+- `graphics/GraphicsAPI` — `Init()` enables depth testing. `CreateShaderProgram` checks vertex/fragment compile status and program link status, logs GL errors, and returns `nullptr` on failure. `CreateIndexBuffer` now correctly sizes its upload as `indices.size() * sizeof(uint32_t)` **(fixed this commit — was `sizeof(float)`, open since the first commit)**.
 - `graphics/ShaderProgram` — compiled shader program with cached uniform locations; `SetUniform` has float, float-pair, and `glm::mat4` overloads.
-- `render/Material` — binds a `ShaderProgram` and holds float/float2 uniform params.
+- `render/Material` — binds a `ShaderProgram` and holds float/float2 uniform params; already no-ops safely in `Bind()` if the shader is null.
 - `render/Mesh` — VAO/VBO/EBO wrapper driven by a data-defined `VertexLayout`.
-- `render/RenderQueue` — collects `RenderCommand`s (material + mesh + modelMatrix). `Draw()` now also takes a `CameraData` (view + projection matrices) and sets `uModel`, `uView`, and `uProjection` on each command's shader before drawing.
-- `scene/GameObject` — name, parent pointer, owned children, `IsAlive()`/`MarkForDestroy()` lifecycle, position/rotation/scale, `GetLocalTransform()`/`GetWorldTransform()` (recursively composed through the parent chain — the earlier `GetWorldTransfrom()` typo and its missing-return bug are both fixed now). **Also now owns a component list** `(new)`: `AddComponent(Component*)` and templated `GetComponent<T>()`, looked up by a per-type runtime id.
-- `scene/Component` **(new)** — base class for per-object behaviour/data. `Component::StaticTypeId<T>()` hands out a stable id per type via a function-local static, and the `COMPONENT(Class)` macro generates the boilerplate `TypeId()`/`GetTypeId()` overrides. Holds a back-pointer (`m_owner`) to its `GameObject`, set by `AddComponent`.
-- `scene/components/MeshComponent` **(new)** — owns a `Mesh` + `Material` pair; every `Update()` it submits a `RenderCommand` (using the owner's `GetWorldTransform()`) to the engine's `RenderQueue`.
-- `scene/components/CameraComponent` **(new)** — computes a view matrix (`glm::inverse(owner's world transform)`) and a perspective projection matrix (`glm::perspective`, configurable FOV/near/far).
-- `scene/Scene` — owns the root set of `GameObject`s. `CreateObject(name, parent)` / templated `CreateObject<T>(name, parent)`; `SetParent()` reparents with a cycle check. **Also now**: `SetMainCamera()`/`GetMainCamera()` and `Clear()`.
+- `render/RenderQueue` — collects `RenderCommand`s (material + mesh + modelMatrix); `Draw()` takes a `CameraData` and sets `uModel`, `uView`, and `uProjection` on each command's shader before drawing.
+- `scene/GameObject` — name, parent pointer, owned children, `IsAlive()`/`MarkForDestroy()` lifecycle, position/scale, and a component list (`AddComponent()` / templated `GetComponent<T>()`). **Rotation is now stored as a `glm::quat` instead of Euler-angle `glm::vec3` `(new)`**, and `GetLocalTransform()` composes it with `glm::mat4_cast(m_rotation)` instead of three separate axis rotations. `GetWorldTransform()` still recursively composes through the parent chain.
+- `scene/Component` — base class for per-object behaviour/data, with RTTI-free per-type ids via `Component::StaticTypeId<T>()` and the `COMPONENT(Class)` macro. Holds a back-pointer (`m_owner`) to its `GameObject`.
+- `scene/components/MeshComponent` — owns a `Mesh` + `Material` pair; every `Update()` submits a `RenderCommand` (using the owner's world transform) to the `RenderQueue`.
+- `scene/components/CameraComponent` — **`GetViewMatrix()` reworked `(new)`**: instead of `glm::inverse(m_owner->GetWorldTransform())`, it now hand-builds a rotation-and-position-only matrix (`glm::mat4_cast(rotation)` with the translation column overwritten by position — deliberately excluding the camera's own scale), multiplies in the immediate parent's full `GetWorldTransform()` if there is one, then inverts. `GetProjectionMatrix()` unchanged (perspective, configurable FOV/near/far).
+- `scene/components/PlayerControllerComponent` **(renamed this commit — was misspelled `PlayerControllerConmponent`)** — first-person-style controller: left-mouse-drag look and WASD move relative to view direction. **Look is now quaternion-based `(new)`**: yaw is applied around the world's fixed up axis, pitch around the object's current local right axis, combined and pre-multiplied onto the existing rotation, then renormalized; `front`/`right` for movement come from rotating the unit axes by the current rotation (`rotation * glm::vec3(...)`) instead of building a rotation matrix by hand.
+- `scene/Scene` — owns the root set of `GameObject`s. `CreateObject`/templated `CreateObject<T>()`; `SetParent()` reparents with a cycle check; `SetMainCamera()`/`GetMainCamera()`; `Clear()`.
 
 **`source/`** — the sample game executable
 - `main.cpp` — creates the `Game`, initializes the `Engine` at 1280×720, runs the loop.
-- `Game` — implements `Application`; owns one `eng::Scene* m_scene`. `Init()` now also creates a camera `GameObject` with a `CameraComponent`, positions it, and calls `SetMainCamera()` on the scene.
-- `TestObject` **(reworked)** — a `GameObject` subclass that no longer renders itself directly: it builds its shader/mesh/material in the constructor and hands them to a `MeshComponent` via `AddComponent()`. The vertex shader now does a full `uProjection * uView * uModel` transform (the engine's first real 3D pipeline) instead of the old model-only `uModel`. Still moves via WASD editing its inherited position, scaled by `deltaTime`.
+- `Game` — implements `Application`; owns one `eng::Scene* m_scene`. `Init()` creates a camera `GameObject` with both `CameraComponent` and `PlayerControllerComponent`, positions it, sets it as the scene's main camera, and spawns one `TestObject`.
+- `TestObject` — a `GameObject` subclass that builds a cube mesh/material/shader in the constructor and hands them to a `MeshComponent`. Doesn't move itself — WASD/mouse control lives on the camera.
 
-**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, and GLM 1.0.1 — all vendored. `engine/CMakeLists.txt` was reworked this commit to use `target_include_directories(PUBLIC ...)` and link GLM as a proper `add_subdirectory` target (`glm`) via `target_link_libraries`, replacing the earlier bare `include_directories` approach. (The file still has the old pre-rework build script left in as commented-out dead code — harmless, but worth deleting in a cleanup pass.)
+**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, and GLM 1.0.1, all vendored and linked via `engine/CMakeLists.txt`.
 
-**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*` and links the `Engine` library, which pulls in GLFW/GLEW/GLM as described above.
+**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*` and links the `Engine` library, which pulls in GLFW/GLEW/GLM.
 
-## Latest work (committed 13 Sept 2026)
+## Latest work (committed 24 Sept 2026)
 
-A component system, plus the engine's first real camera and full MVP transform pipeline:
+Switched rotation from Euler angles to quaternions throughout, plus two long-open review bugs fixed:
 
-- Added `Component` (base class, macro-based static type IDs via `COMPONENT(Class)`) and gave `GameObject` a component list: `AddComponent()` / templated `GetComponent<T>()`.
-- Added `MeshComponent` (submits a `RenderCommand` each `Update`, using the owner's world transform) and `CameraComponent` (view matrix via inverse world transform; perspective projection matrix).
-- Added `CameraData` (view + projection) to `RenderQueue::Draw`; it now sets `uView`/`uProjection` alongside `uModel` on every draw.
-- Added `Scene::SetMainCamera()`/`GetMainCamera()`; `Engine::Run()` now pulls camera data from the scene's main camera every frame, using the live window aspect ratio.
-- Fixed `GetWorldTransfrom()`'s typo (now `GetWorldTransform()`) **and** the missing `return` in its no-parent branch — closes harder-question #1 from the transform-hierarchy commit.
-- Reworked `engine/CMakeLists.txt` to link GLM as a proper target and use `target_include_directories(PUBLIC ...)`.
-- Rewired `TestObject` to own a `MeshComponent` instead of building render state directly; its vertex shader now does a full `uProjection * uView * uModel` transform.
-- `Game::Init()` now creates a camera `GameObject` with a `CameraComponent` and sets it as the scene's main camera.
+- `GameObject::m_rotation` is now a `glm::quat` (was `glm::vec3` Euler angles); `GetLocalTransform()` composes it with `glm::mat4_cast` instead of three chained axis rotations.
+- `PlayerControllerComponent`'s mouse-look rewritten for quaternions: yaw around world-up, pitch around the object's current local right, combined via quaternion multiplication and renormalized; movement direction vectors now come from rotating unit axes by the current rotation instead of building a rotation matrix by hand.
+- `CameraComponent::GetViewMatrix()` reworked to hand-build a rotation+position matrix (excluding the camera's own scale) rather than calling `GetWorldTransform()` directly.
+- Fixed `GraphicsAPI::CreateIndexBuffer`'s buffer-size bug (`sizeof(uint32_t)` instead of `sizeof(float)`) — **closes the harder-question open since the very first commit.**
+- Fixed the `PlayerControllerConmponent` → `PlayerControllerComponent` typo across the header, .cpp, and `Game.cpp` — **closes last commit's naming nitpick.**
 
-**Suggested commit message:**
+## Learning questions from this commit — quaternions, C++, and engine architecture
 
-```
-Add component system, camera, and full MVP transform pipeline
+Grounded in the actual code from this commit (`GameObject`, `PlayerControllerComponent`, `CameraComponent`). Worth working through by hand rather than just reading an answer.
 
-- Add Component base class with macro-based static type IDs
-  (COMPONENT), GameObject::AddComponent()/GetComponent<T>()
-- Add MeshComponent (submits a RenderCommand each Update) and
-  CameraComponent (view matrix via inverse world transform,
-  perspective projection matrix)
-- Add CameraData (view + projection) to RenderQueue::Draw; sets
-  uView/uProjection alongside uModel each draw
-- Add Scene::SetMainCamera()/GetMainCamera(); Engine::Run() pulls
-  camera data from the scene's main camera each frame using the
-  current window aspect ratio
-- Fix GetWorldTransfrom() typo -> GetWorldTransform(), and fix the
-  missing return in its no-parent branch (closes last commit's
-  harder-question #1)
-- Rework engine/CMakeLists.txt to link GLM as a proper target and
-  use target_include_directories(PUBLIC ...)
-- Rewire TestObject to own a MeshComponent instead of building
-  render state directly; vertex shader now does a full
-  uProjection * uView * uModel transform
-- Game::Init() creates a camera GameObject with a CameraComponent
-  and sets it as the scene's main camera
-```
-
-## Learning questions from this commit — C++, engine architecture & the component system
-
-Grounded in the actual code from this commit (`Component`, `GameObject::AddComponent`, `CameraComponent`, `Game::Init`). Worth working through by hand rather than just reading an answer.
-
-1. `AddComponent` is called like `AddComponent(new eng::MeshComponent(mesh, material));` — a raw `new`'d pointer, wrapped in a `unique_ptr` only once it's inside `emplace_back`. Why is accepting a `std::unique_ptr<Component>` parameter directly usually considered safer than this "raw pointer in, wrapped internally" pattern? What's the concrete way the current signature could leak?
-2. `Component::StaticTypeId<T>()` hands out a per-type id using `static size_t typeId = nextId++;` inside a function template. Why does one function-local static per template instantiation guarantee a stable, unique id for each component type — and what would break if `nextId` were an ordinary member variable instead of a function-local static?
-3. The codebase now has three places holding a *raw, non-owning* pointer to something owned elsewhere: `GameObject::m_parent`, `Game::m_scene` (the real owner is `Engine::m_currentScene`, a `unique_ptr`), and the local `camera` variable in `Game::Init()` (owned by the `Scene`). What's the one rule all three have to follow to stay safe, and what would go wrong if something used one of them after its real owner had already destroyed it?
-4. `CameraComponent::GetViewMatrix()` returns `glm::inverse(m_owner->GetWorldTransform())` rather than the world transform itself. In plain terms, why does "where the camera is in the world" need to be inverted to produce "how the world looks from the camera"?
-5. **Programming task:** add a `RemoveComponent<T>()` method to `GameObject` (mirroring `GetComponent<T>()`'s type-id lookup) that finds and erases a component of type `T` from `m_components`. Then use it somewhere in `TestObject` to prove it works — e.g. toggle the `MeshComponent` off and on with a key so the quad disappears and reappears.
+1. `GameObject` switched from Euler angles to quaternions, and `GetLocalTransform()` now just does `mat * glm::mat4_cast(m_rotation)`. What specific problem with Euler angles does a quaternion avoid — and why does the new mouse-look code need `glm::normalize(deltaRot * rotation)` when the old Euler-angle version never needed anything like a normalize step?
+2. `PlayerControllerComponent` computes `front`/`right` as `rotation * glm::vec3(0,0,-1)` and `rotation * glm::vec3(1,0,0)`. In plain terms, what is `operator*` doing when you multiply a `glm::quat` by a `glm::vec3` — and why does this replace the old code's need for a whole rotation matrix just to get two direction vectors?
+3. The new mouse-look pitches around the object's *current local* right axis (`rotation * glm::vec3(1,0,0)`) but yaws around the world's *fixed* up axis, rather than the object's own local up. Why does mixing "local" for one axis and "world" for the other give you the familiar "can't tip over" FPS-camera feel, instead of a free-spinning camera?
+4. `CameraComponent::GetViewMatrix()` now builds its own position+rotation matrix by hand instead of calling `m_owner->GetWorldTransform()` like it used to. What does this version deliberately leave out compared to `GetWorldTransform()`, and why might that be the right call specifically for a camera?
+5. **Programming task:** add a `LookAt(const glm::vec3& target, const glm::vec3& up = glm::vec3(0.0f, 1.0f, 0.0f))` method to `GameObject` that computes and sets `m_rotation` so the object faces `target` from its current position (GLM's `glm::quatLookAt`, or building a matrix with `glm::lookAt` and extracting the rotation, will get you there). Use it to make the camera always face the cube no matter where either one moves.
 
 ## A few harder questions (with possible solutions)
 
 More "code review" than "learning exercise" — real gaps or bugs, each with one reasonable way to close it.
 
-1. **Still no depth testing — and now it actually matters.** With a real camera and perspective projection in place, the moment a second 3D object exists (or this one rotates edge-on to another), submission order — not depth — decides what's drawn on top. Nothing in `GraphicsAPI` enables depth testing or clears a depth buffer.
-   *Possible solution:* `glEnable(GL_DEPTH_TEST)` once during setup, and clear `GL_DEPTH_BUFFER_BIT` alongside the color buffer in `ClearBuffers()`.
+1. **Mouse-look is still framerate-dependent — it survived the quaternion rewrite unfixed.** `float yAngle = -deltaX * m_sensitivity * deltaTime;` (and the `.x`/pitch equivalent) still multiply an already-elapsed mouse-pixel delta by `deltaTime`, so the same physical mouse swipe turns the camera by a different amount depending on framerate. This was flagged last session, and the surrounding code got fully rewritten for quaternions since — but this specific line came through unchanged.
+   *Possible solution:* unchanged from last time — drop `* deltaTime` from both angle calculations; tune feel via `m_sensitivity` alone.
 
-2. **Direct uniform-pushing around `Material` has grown, not shrunk.** `RenderQueue::Draw` now sets *three* uniforms (`uModel`, `uView`, `uProjection`) straight on the shader program, still completely bypassing `Material::SetParam`/`Bind()` — which was flagged for just `uModel` last commit and hasn't been addressed since; there are now two more uniforms doing the same workaround.
-   *Possible solution:* unchanged from last time — give `Material` a `glm::mat4` overload for `SetParam`, and route all per-draw uniforms (model, view, projection) through `Material::Bind()` instead of reaching into the shader directly from `RenderQueue`.
+2. **The camera's hand-built world matrix only strips its own scale, not its parent's.** `GetViewMatrix()` builds a scale-free `T*R` for the camera object itself, then multiplies in `m_owner->GetParent()->GetWorldTransform()` when there's a parent — but that call still includes the *parent's* scale in full. Parenting the camera under a non-uniformly-scaled object would still skew the view, which defeats the point of stripping scale in the first place — and it re-implements "how position+rotation combine into a matrix" a second time, separately from `GetLocalTransform()`.
+   *Possible solution:* decide once whether cameras should ever inherit ancestor scale. If not, walk the parent chain building only position+rotation at every level (a `GetWorldPositionAndRotation()`-style helper); if scale-from-parents is fine, just call `m_owner->GetWorldTransform()` and accept it.
 
-3. **Index buffer still uploads the wrong type's byte size** *(open three commits running)* — `GraphicsAPI::CreateIndexBuffer` still computes `indices.size() * sizeof(float)` for a `std::vector<uint32_t>`.
-   *Possible solution:* unchanged — `indices.size() * sizeof(uint32_t)` (or `sizeof(indices[0])`).
+3. **Direct uniform-pushing around `Material` — still unaddressed** *(open three commits running)* — `RenderQueue::Draw` still sets `uModel`/`uView`/`uProjection` straight on the shader program, bypassing `Material::SetParam`/`Bind()` entirely.
+   *Possible solution:* unchanged — give `Material` a `glm::mat4` overload for `SetParam`, and route every per-draw uniform through `Bind()`.
 
-4. **Shader-compile failure still isn't checked** *(open three commits running)* — component-based or not, nothing checks `CreateShaderProgram`'s result for null before handing it to a `Material`.
-   *Possible solution:* unchanged — check the returned `shared_ptr` for null and log + bail (or fall back to an "error" shader) before continuing.
+4. **Mouse "old" position still gets shifted in two places per frame** *(open two commits running)* — both inside `cursorPositionCallback` (on every raw GLFW event) and once more at the end of `Engine::Run()`, which can silently drop movement if more than one mouse-move event lands within a single frame.
+   *Possible solution:* unchanged — do the shift in exactly one of those two places, not both.
 
 ## Commit log
 
@@ -118,3 +91,5 @@ More "code review" than "learning exercise" — real gaps or bugs, each with one
 | 2026-09-10 | Scene/GameObject hierarchy + `TestObject` sample — added `GameObject` (parent/child ownership, `IsAlive()`/`MarkForDestroy()`, cascading `Update()`), `Scene` (object storage, templated `CreateObject<T>()`, `SetParent()` with cycle checking), and `TestObject` as the first real `GameObject` (own shader/material/mesh, WASD-driven `uOffset`, submits to `RenderQueue`). |
 | 2026-09-10 | Transform hierarchy via GLM — `GameObject` gained position/rotation/scale plus `GetLocalTransform()`/`GetWorldTransfrom()`; `ShaderProgram`, `RenderQueue`, and `TestObject` rewired to build and submit a `uModel` matrix instead of the old `uOffset` uniform (also fixed the frame-rate-dependent movement flagged last time). |
 | 2026-09-13 | Component system + camera + full MVP pipeline — added `Component`/`MeshComponent`/`CameraComponent`; `RenderQueue`/`Engine` now build real `uView`/`uProjection` matrices from the scene's main camera each frame; fixed the `GetWorldTransfrom()` typo and its missing-return bug; reworked `engine/CMakeLists.txt`'s GLM linking. |
+| 2026-09-19 | Mouse look/movement, depth testing, real shader-compile checking — added mouse tracking to `InputManager`/`Engine`, `PlayerControllerComponent` (look + move, attached to the camera), `GraphicsAPI::Init()` enabling depth testing, and real compile/link error checking in `CreateShaderProgram`. `TestObject` is now a static cube. |
+| 2026-09-24 | Quaternion rotation + two bug fixes — `GameObject` rotation switched from Euler `glm::vec3` to `glm::quat`; `PlayerControllerComponent` mouse-look and `CameraComponent::GetViewMatrix()` rewritten for quaternions; fixed the `CreateIndexBuffer` size bug (open since the first commit) and the `PlayerControllerConmponent` typo. |
