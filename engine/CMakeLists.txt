@@ -33,6 +33,8 @@ set(PROJECT_SOURCE_FILES
 	source/scene/components/CameraComponent.cpp
 	source/scene/components/PlayerControllerComponent.h
 	source/scene/components/PlayerControllerComponent.cpp
+	source/scene/components/RotatingComponent.h
+	source/scene/components/RotatingComponent.cpp
 )
 
 #include_directories(source)

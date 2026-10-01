@@ -21,11 +21,11 @@ namespace eng
             float deltaY = newPos.y - oldPos.y;
 
             //rotation around y axis 
-            float yAngle = -deltaX * m_sensitivity * deltaTime;
+            float yAngle = -deltaX * m_sensitivity;
             glm::quat yRot = glm::angleAxis(yAngle, glm::vec3(0.0f, 1.0f, 0.0f));
             
             //rotation around x axis 
-            float xAngle = -deltaY * m_sensitivity * deltaTime;
+            float xAngle = -deltaY * m_sensitivity;
             glm::vec3 right = rotation * glm::vec3(1.0f, 0.0f, 0.0f);
             glm::quat xRot = glm::angleAxis(xAngle, right);
 
@@ -38,6 +38,7 @@ namespace eng
 
         glm::vec3 front = rotation * glm::vec3(0.0f, 0.0f, -1.0f);
         glm::vec3 right = rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+        glm::vec3 up = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
 
         auto position = m_owner->GetPosition();
 
@@ -59,7 +60,15 @@ namespace eng
         {
             position -= front * m_moveSpeed * deltaTime;
         }
-
+        //up and down
+        if (inputManager.IsKeyPressed(GLFW_KEY_E))
+        {
+            position += up * m_moveSpeed * deltaTime;
+        }
+        else if (inputManager.IsKeyPressed(GLFW_KEY_Q))
+        {
+            position -= up * m_moveSpeed * deltaTime;
+        }
         m_owner->SetPosition(position);
 
     }

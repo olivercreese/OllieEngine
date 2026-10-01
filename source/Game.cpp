@@ -13,7 +13,12 @@ bool Game::Init()
 
     m_scene->SetMainCamera(camera);
 
-    m_scene->CreateObject<TestObject>("TestObject");
+    auto cube = m_scene->CreateObject<TestObject>("TestObject");
+    cube->AddComponent(new eng::RotatingComponent(glm::vec3(0.0f, 1.0f, 0.0f), 45.0f));
+    cube->SetPosition(glm::vec3(0.0f, 0.0f, -4.0f));
+    auto cube1 = m_scene->CreateObject<TestObject>("TestObjectChild", cube);
+    cube1->SetPosition(glm::vec3(2.0f, 2.0f, 0.0f));
+    cube1->SetScale(glm::vec3(0.5f, 0.5f, 0.5f));
 
     eng::Engine::GetInstance().SetScene(m_scene);
 
@@ -23,6 +28,7 @@ bool Game::Init()
 void Game::Update(float deltaTime) 
 {
     m_scene->Update(deltaTime);
+
 
 }
 
