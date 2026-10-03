@@ -22,6 +22,10 @@ add_executable(${PROJECT_NAME} ${PROJECT_SOURCE_FILES} "source/Game.h")
 # Add GLFW library
 add_subdirectory(engine "${CMAKE_CURRENT_BINARY_DIR}/engine_build")
 include_directories(engine/source)
+
+include_directories(engine/thirdparty/stb_image)
+
+
 # Link all engine libraries
 target_link_libraries(${PROJECT_NAME} 
 	Engine

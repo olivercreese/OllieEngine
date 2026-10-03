@@ -4,6 +4,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 project(Engine)
 
+set(ASSETS_DIR "${CMAKE_SOURCE_DIR}/assets")
+
+configure_file(
+	${PROJECT_SOURCE_DIR}/config.h.in
+	${PROJECT_BINARY_DIR}/config.h
+)
+
 set(PROJECT_SOURCE_FILES
 	source/Engine.h
 	source/Engine.cpp
@@ -15,7 +22,9 @@ set(PROJECT_SOURCE_FILES
 	source/graphics/ShaderProgram.cpp
 	source/graphics/GraphicsAPI.h
 	source/graphics/GraphicsAPI.cpp
+	source/graphics/Texture.h
 	source/render/Material.h
+	source/graphics/Texture.cpp
 	source/render/Material.cpp
 	source/render/Mesh.h
 	source/render/Mesh.cpp
@@ -35,6 +44,8 @@ set(PROJECT_SOURCE_FILES
 	source/scene/components/PlayerControllerComponent.cpp
 	source/scene/components/RotatingComponent.h
 	source/scene/components/RotatingComponent.cpp
+	source/io/FileSystem.h
+	source/io/FileSystem.cpp
 )
 
 #include_directories(source)
@@ -70,6 +81,13 @@ set_property(TARGET glew PROPERTY FOLDER GLEW)
 add_subdirectory(thirdparty/glm-1.0.1/glm)
 include_directories(thirdparty/glm-1.0.1)
 
+include_directories(thirdparty/stb_image)
+
+include_directories(thirdparty/json)
+
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_BINARY_DIR})
+
 # Link all thirdparty libraries
 target_link_libraries(${PROJECT_NAME} 
     glfw 
@@ -77,3 +95,8 @@ target_link_libraries(${PROJECT_NAME}
 	glm
 )
 
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+	${ASSETS_DIR}
+	${CMAKE_BINARY_DIR}/assets
+)
