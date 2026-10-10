@@ -28,6 +28,13 @@ bool Game::Init()
     cube2->SetScale(glm::vec3(2.0f, 2.0f, 2.0f));
     m_scene->SetParent(cube, cube2);
 
+    auto suzanneMesh = eng::Mesh::Load("models/suzanne/suzanne.gltf");
+    auto suzanneMaterial = eng::Material::Load("materials/suzanne.mat");
+
+    auto suzanneObj = m_scene->CreateObject("Suzanne");
+    suzanneObj->AddComponent(new eng::MeshComponent(suzanneMesh, suzanneMaterial));
+    suzanneObj->SetPosition(glm::vec3(0.0f, 0.0f, 0.0f));
+
     eng::Engine::GetInstance().SetScene(m_scene);
 
     return true;

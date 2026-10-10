@@ -9,6 +9,11 @@
 
 namespace eng
 {
+    void glfwErrorCallback(int error, const char* description)
+    {
+        std::cerr << "GLFW error " << error << ": " << description << std::endl;
+    }
+
     void keyCallback(GLFWwindow* window, int key, int, int action, int) 
     {
         auto& inputManger = eng::Engine::GetInstance().GetInputManager();
@@ -59,6 +64,8 @@ namespace eng
         {
             return false;
         }
+
+        glfwSetErrorCallback(glfwErrorCallback);
 
         if (!glfwInit())
         {

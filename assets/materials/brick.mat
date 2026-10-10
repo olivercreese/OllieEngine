@@ -9,7 +9,7 @@
 		"textures":
 		[
 			{
-				"name": "brickTexture",
+				"name": "baseColorTexture",
 				"path": "textures/brick.png"
 			}
 		]
