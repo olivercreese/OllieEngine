@@ -1,12 +1,12 @@
 # OllieEngine — Project Status
 
-*Last updated: 10 October 2026 — written for the commit "Add glTF model loading via cgltf and render Suzanne". (This update also catches up on the 3 Oct materials/textures commit, which didn't update this file.)*
+*Last updated: 12 October 2026 — written for the commit "Add diffuse point lighting with LightComponent and vertex normals". Per-lesson recaps and quizzes now live in a local, git-ignored `lessons/` folder; this file keeps the project-level picture and the review list.*
 
 This file is meant to be the fast-context doc for OllieEngine: what the engine currently does, how it's put together, and what was just changed — so a new chat (or a future you) can pick up the project without re-reading the whole codebase. Update it each time you commit: move today's "Latest Work" into the Commit Log, replace it with the new changes, and refresh the architecture snapshot if modules were added or restructured.
 
 > **Note for Claude (or anyone helping with this project):** read this file first before answering questions about OllieEngine. It has the architecture, the most recent commit's changes, and where things stand — use it as the starting context instead of re-deriving it from scratch each session.
 
-Each commit gets two kinds of questions below: **learning questions**, aimed at building up Ollie's understanding of C++ / engine programming / 3D graphics through the code just written (deliberately open — the point is to work them out, not read an answer); and **harder review questions**, which behave more like a code review and come with a possible solution attached, for the cases worth just knowing the answer to. The suggested commit message for each session is given in chat only, not kept in this file.
+Each commit gets two kinds of questions: **learning questions**, aimed at building up Ollie's understanding of C++ / engine programming / 3D graphics through the code just written (since 12 Oct 2026 these live per lesson, with a recap and a marked quiz, in the local git-ignored `lessons/` folder; if Ollie says to skip an unfinished lesson, its quiz is dropped rather than carried over); and **harder review questions** (kept below), which behave more like a code review and come with a possible solution attached, for the cases worth just knowing the answer to. The suggested commit message for each session is given in chat only, not kept in this file.
 
 > **Question-writing preferences (Ollie's feedback, 10 Sept 2026) — apply to every future set:**
 > - No OpenGL/graphics-API history or "deprecated feature" trivia (e.g. core vs. compatibility profile). Skip that entirely, not useful.
@@ -23,85 +23,87 @@ A small custom C++ game engine, built from scratch on top of GLFW (windowing/inp
 ## Architecture snapshot
 
 **`engine/source/`** — the engine library, namespace `eng`
-- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, the `GraphicsAPI`, the `FileSystem`, and the active `Scene`. Registers GLFW callbacks for keyboard, mouse buttons, and cursor position. Each frame it pulls `CameraData` (view + projection) from the scene's main camera, draws, swaps buffers, then resets the input manager's "old" mouse position to the current one.
+- `Engine` (singleton) — owns the GLFW window/context, the main loop with delta time, the `InputManager`, the `GraphicsAPI`, the `FileSystem`, and the active `Scene`. Registers GLFW callbacks (plus a GLFW error callback). Each frame it pulls `CameraData` from the scene's main camera **and a `std::vector<LightData>` from `Scene::CollectLights()` `(new)`**, passes both to `RenderQueue::Draw`, swaps buffers, then resets the input manager's "old" mouse position.
+- `Common.h` **`(new)`** — plain data structs shared between scene and renderer: `CameraData` (view + projection, moved here from `RenderQueue.h`) and `LightData` (colour + world position).
 - `Application` — interface (`Init` / `Update` / `Destroy`) that game code implements; the engine drives it each frame.
-- `input/InputManager` — polls keyboard state via GLFW callbacks; also tracks mouse button state and old/new cursor position (for computing per-frame mouse deltas).
-- `io/FileSystem` — resolves the executable and `assets/` folders (with a CMake-injected `ASSETS_ROOT` override via `config.h.in`); `LoadAssetFile()` (bytes) and `LoadAssetFileText()` (string) take paths relative to `assets/`.
-- `graphics/GraphicsAPI` — `Init()` enables depth testing. `CreateShaderProgram` checks compile/link status, logs GL errors, returns `nullptr` on failure. `CreateIndexBuffer` sizes its upload as `indices.size() * sizeof(uint32_t)`.
-- `graphics/ShaderProgram` — compiled shader program with cached uniform locations; `SetUniform` has float, float-pair, and `glm::mat4` overloads; `SetTexture()` binds a `Texture` to a sampler uniform.
-- `graphics/Texture` — `Texture::Load(path)` reads an image with stb_image and uploads it as a mipmapped `GL_TEXTURE_2D`; deletes its GL handle in the destructor.
-- `graphics/VertexLayout` — `VertexElement` (attribute index, component count, GL type, byte offset) + `VertexLayout` (element list + stride). **`VertexElement` now has `positionIndex = 0`, `colourIndex = 1`, `UVIndex = 2` constants `(new)`** — the agreed attribute slots that both the glTF loader and `layout (location = N)` in `vertex.glsl` use.
-- `render/Material` — binds a `ShaderProgram` and holds float/float2/texture params. `Material::Load(path)` parses a JSON `.mat` file (shader paths + params, including textures) and builds the whole thing.
-- `render/Mesh` — VAO/VBO/EBO wrapper driven by a data-defined `VertexLayout`; non-copyable. **`Mesh::Load(path)` `(new)`** parses a `.gltf` with cgltf, loads its `.bin` buffers from the model's folder, and builds a `Mesh` from the *first* triangle primitive it finds: `POSITION`, `COLOR_0` and `TEXCOORD_0` are mapped to attribute slots 0/1/2 and interleaved into one float array; uses indices if the primitive has them. Index-buffer constructor now takes the index vector by `const&`.
-- `render/RenderQueue` — collects `RenderCommand`s (material + mesh + modelMatrix); `Draw()` takes a `CameraData` and sets `uModel`, `uView`, and `uProjection` on each command's shader before drawing.
-- `scene/GameObject` — name, parent pointer, owned children, `IsAlive()`/`MarkForDestroy()` lifecycle, position / `glm::quat` rotation / scale, and a component list (`AddComponent()` / templated `GetComponent<T>()`). `GetWorldTransform()` recursively composes through the parent chain.
-- `scene/Component` — base class for per-object behaviour/data, with RTTI-free per-type ids via `Component::StaticTypeId<T>()` and the `COMPONENT(Class)` macro. Holds a back-pointer (`m_owner`) to its `GameObject`.
-- `scene/components/MeshComponent` — holds a `shared_ptr<Mesh>` + `shared_ptr<Material>`; every `Update()` submits a `RenderCommand` (owner's world transform). Silently skips if either is null.
-- `scene/components/CameraComponent` — `GetViewMatrix()` hand-builds a position+rotation matrix (excluding the camera's own scale), multiplies in the parent's world transform if any, then inverts. Perspective projection with configurable FOV/near/far.
-- `scene/components/PlayerControllerComponent` — first-person controller: quaternion mouse-look (yaw around world up, pitch around local right; no longer scaled by `deltaTime`) and WASD/up/down movement relative to view direction.
-- `scene/components/RotatingComponent` — spins its owner around a given axis at a given speed.
-- `scene/Scene` — owns the root set of `GameObject`s. `CreateObject`/templated `CreateObject<T>()` (optionally with a parent); `SetParent()` reparents with a cycle check; `SetMainCamera()`/`GetMainCamera()`; `Clear()`.
+- `input/InputManager` — keyboard state, mouse button state and old/new cursor position via GLFW callbacks.
+- `io/FileSystem` — resolves the executable and `assets/` folders (CMake-injected `ASSETS_ROOT` override); `LoadAssetFile()` / `LoadAssetFileText()` take paths relative to `assets/`.
+- `graphics/GraphicsAPI` — enables depth testing; `CreateShaderProgram` checks compile/link status; index/vertex buffer creation.
+- `graphics/ShaderProgram` — cached uniform locations; `SetUniform` overloads for float, float pair, `glm::mat4` and **`glm::vec3` `(new)`**; `SetTexture()`.
+- `graphics/Texture` — `Texture::Load(path)` via stb_image, mipmapped `GL_TEXTURE_2D`, freed in the destructor.
+- `graphics/VertexLayout` — `VertexElement` + `VertexLayout`. Attribute-slot constants `positionIndex = 0`, `colourIndex = 1`, `UVIndex = 2`, **`NormalIndex = 3` `(new)`**, matching `layout (location = N)` in `vertex.glsl`.
+- `render/Material` — shader + float/float2/texture params; `Material::Load()` from JSON `.mat`.
+- `render/Mesh` — VAO/VBO/EBO wrapper driven by a `VertexLayout`; non-copyable. `Mesh::Load(path)` loads the first triangle primitive of a glTF (`POSITION`, `COLOR_0`, `TEXCOORD_0`, **and now `NORMAL` `(new)`**). **`Mesh::CreateCube()` `(new)`** builds the 24-vertex textured cube (position, colour, UV, normal; stride 11 floats) that used to live in `TestObject`.
+- `render/RenderQueue` — collects `RenderCommand`s; `Draw(graphicsAPI, cameraData, lights)` sets `uModel`/`uView`/`uProjection` and, **if there is at least one light, `uLight.color`/`uLight.position` from `lights[0]` `(new)`**, on each command's shader.
+- `scene/GameObject` — name, parent, owned children, lifecycle, position / quat rotation / scale, components. `GetWorldTransform()` composes through the parent chain; **`GetWorldPosition()` `(new)`** returns the object's world-space origin (world transform × `(0,0,0,1)`).
+- `scene/Component` — base class with RTTI-free type ids (`COMPONENT(Class)`), back-pointer to its owner.
+- `scene/components/MeshComponent` — `shared_ptr<Mesh>` + `shared_ptr<Material>`; submits a `RenderCommand` each `Update()`; skips silently if either is null.
+- `scene/components/CameraComponent` — view matrix from position+rotation (own scale excluded) × parent world transform, inverted; perspective projection.
+- `scene/components/PlayerControllerComponent` — quaternion mouse-look and WASD/up/down movement.
+- `scene/components/RotatingComponent` — spins its owner around an axis.
+- `scene/components/LightComponent` **`(new)`** — data-only component holding a light colour (default white). Its position comes from its owner.
+- `scene/Scene` — owns root `GameObject`s; `CreateObject`, `SetParent()` with cycle check, main camera. **`CollectLights()` `(new)`** walks every object and child recursively and returns a `LightData` for each one with a `LightComponent`.
 
 **`source/`** — the sample game executable
 - `main.cpp` — creates the `Game`, initializes the `Engine` at 1280×720, runs the loop.
-- `Game` — implements `Application`; owns one `eng::Scene* m_scene`. `Init()` builds a small test scene: a camera with `CameraComponent` + `PlayerControllerComponent`, three textured `TestObject` cubes (two rotating, one nested), and **a Suzanne `GameObject` at the origin whose `MeshComponent` gets `Mesh::Load("models/suzanne/suzanne.gltf")` and `Material::Load("materials/suzanne.mat")` `(new)`**.
-- `TestObject` — a `GameObject` subclass that builds a UV-mapped cube mesh and loads its material from `assets/materials/brick.mat`.
+- `Game` — `Init()` builds the test scene: camera with controller, three brick `TestObject` cubes (two rotating, one nested), Suzanne (**now at `(0, -8, -6)`**), and **a white point light at `(0, 0, 10)` `(new)`**.
+- `TestObject` — **now just `Mesh::CreateCube()` + `brick.mat` `(new)`**.
 
-**`assets/`** — `shaders/vertex.glsl` + `fragment.glsl` (now just MVP + a single `baseColorTexture` sample; the per-vertex colour was dropped), `materials/brick.mat` + `suzanne.mat`, `textures/brick.png`, `Models/suzanne/` (Suzanne `.gltf` + `.bin` + base-colour and metallic-roughness PNGs). Copied next to the built binary by a post-build step.
+**`assets/`** — `shaders/vertex.glsl` (MVP, **plus world-space `vFragPos` and a normal transformed by `transpose(inverse(uModel))` `(new)`**), `shaders/fragment.glsl` (**diffuse lighting: `max(dot(N, L), 0) * uLight.color` multiplied into the texture colour `(new)`**), `materials/brick.mat` + `suzanne.mat`, `textures/brick.png`, `Models/suzanne/`. Copied next to the binary post-build.
 
-**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, GLM 1.0.1, stb_image, nlohmann/json, and **cgltf `(new)`** (header-only; `CGLTF_IMPLEMENTATION` is defined in `Mesh.cpp`).
+**Third-party** (`engine/thirdparty/`): GLFW 3.4, GLEW, GLM 1.0.1, stb_image, nlohmann/json, cgltf.
 
-**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable from `source/*` and links the `Engine` library. `engine/CMakeLists.txt` now uses plain `include_directories()` for every dependency (instead of `target_include_directories(... PUBLIC ...)`) and groups source files into folders for the Visual Studio solution via `source_group`.
+**Build**: root `CMakeLists.txt` builds the `OllieEngine` executable and links the `Engine` library; `engine/CMakeLists.txt` lists every engine source (now including `Common.h` and `LightComponent`), uses `include_directories()` and VS `source_group` folders.
 
-## Latest work (10 Oct 2026)
+## Latest work (12 Oct 2026)
 
-Model loading — the engine can now load a mesh from a glTF file instead of only hand-typed vertex arrays:
+Diffuse lighting from a single point light:
 
-- Added `Mesh::Load()` using cgltf: parse the `.gltf` JSON, load the binary buffers relative to the model's folder, walk meshes → primitives, build a `VertexLayout` from the primitive's attributes, read every vertex's attributes into one interleaved `std::vector<float>`, read indices into a `std::vector<uint32_t>`, and hand both to the existing `Mesh` constructors.
-- Added attribute-slot constants to `VertexElement` so the loader writes position/colour/UV into the same locations the vertex shader reads from.
-- `Mesh` index constructor takes indices by `const&` (was by value — a needless copy); `Draw()` casts counts to `GLsizei` explicitly.
-- Shaders: dropped the per-vertex colour (Suzanne's glTF has no `COLOR_0`), renamed the sampler `brickTexture` → `baseColorTexture` so one shader serves both materials; `brick.mat` updated to match, `suzanne.mat` added.
-- `Game::Init()` spawns Suzanne at the origin.
-- Vendored cgltf; tidied `engine/CMakeLists.txt` to match the course's layout.
-- *Not lesson work:* a `glfwSetErrorCallback` that prints GLFW errors to `std::cerr` was added to `Engine::Init()` in a separate debugging session. Commit it on its own if you want to keep it.
+- New `LightComponent` (colour) and `LightData`; `Scene::CollectLights()` gathers every light's colour and world position each frame; `Engine` passes the list to `RenderQueue::Draw`, which uploads the first light as the `uLight` struct uniform.
+- Meshes now carry normals: `NormalIndex = 3` slot, `Mesh::Load` reads glTF `NORMAL`, and the hand-built cube moved into `Mesh::CreateCube()` with per-face normals.
+- Vertex shader outputs world-space fragment position and normal; fragment shader computes Lambert diffuse and multiplies it into the texture colour.
+- `CameraData` moved into the new `Common.h`; added `ShaderProgram::SetUniform(name, glm::vec3)` and `GameObject::GetWorldPosition()`.
+- Suzanne moved to `(0, -8, -6)`; a white light placed at `(0, 0, 10)`.
 
-## Learning questions from this commit — model loading, C++, and engine architecture
+## Learning questions
 
-Grounded in `Mesh::Load()` and the shader/material changes. Work them through by hand.
+These now live with each lesson in `lessons/` (local only, git-ignored). The model-loading set was skipped at Ollie's request; the current lesson is `lessons/lighting-diffuse.md`.
 
-1. `Mesh::Load` returns `std::shared_ptr<Mesh>`, and `Mesh` deletes its copy constructor and copy assignment. Why does that combination make sense for an object that owns GPU buffer handles — what would go wrong if two `Mesh` copies thought they owned the same VAO?
-2. `cgltf_free(data)` has to run on every path out of the function once `cgltf_parse` has succeeded. Trace every `return` in `Mesh::Load` — is each one covered? Then: which C++ idiom would make forgetting it impossible?
-3. The loader stores accessors in `accessors[3]` indexed by `VertexElement::positionIndex`/`colourIndex`/`UVIndex`, not by the order attributes appear in the file. Why does that matter, and how do those constants connect to `layout (location = 0/1/2)` in `vertex.glsl`?
-4. `cgltf_load_buffers` is given `fullPath.remove_filename()`. What lives in `Suzanne.gltf` versus `Suzanne.bin`, and why does the loader need the model's folder rather than just the `.gltf` path you passed to `Mesh::Load`?
-5. `readFloats` and `readIndex` are lambdas stored in `auto` variables with an empty capture list `[]`. What type does `auto` deduce there, why don't they need to capture anything, and what is the `std::fill` at the top of `readFloats` protecting against?
-6. **Programming task:** replace the manual `cgltf_free(data)` calls with a `std::unique_ptr<cgltf_data, decltype(&cgltf_free)>` (constructed right after `cgltf_parse` succeeds), so cleanup happens automatically on every return path. Then delete the now-redundant `cgltf_free` lines.
-7. **Still open from 24 Sept — programming task:** add `GameObject::LookAt(const glm::vec3& target, const glm::vec3& up = {0,1,0})` that sets `m_rotation` so the object faces `target` (`glm::quatLookAt` gets you there). Try it by making Suzanne always face the camera.
+Hands-on tasks still open across lessons:
+- `GameObject::LookAt(target, up)` via `glm::quatLookAt` *(open since 24 Sept)*.
 
 ## A few harder questions (with possible solutions)
 
 More "code review" than "learning exercise" — real gaps or bugs, each with one reasonable way to close it.
 
-1. **`Mesh` never frees its GL objects** *(new)*. There's no `~Mesh()`, so the VAO/VBO/EBO created in the constructors leak when the last `shared_ptr<Mesh>` goes away. `Texture` already does this correctly in its destructor.
-   *Possible solution:* add `~Mesh()` that calls `glDeleteVertexArrays`/`glDeleteBuffers` on any non-zero handle — the same pattern as `~Texture()`.
+1. **`Mesh::CreateCube()` declares the normal attribute with 2 components instead of 3** *(new)*. The normal element is `{ NormalIndex, 2, GL_FLOAT, sizeof(float) * 8 }`, so the GPU reads only the normal's x and y and the shader fills z with 0. The front and back faces (normals `(0,0,±1)`) arrive as `(0,0,0)`; normalizing a zero vector is undefined, so those faces render black or garbage. The other four faces are fine, which makes it look like a lighting problem rather than a data problem.
+   *Possible solution:* change the `2` to `3`. Longer term, have `VertexLayout` compute offsets and stride from element sizes (as `Mesh::Load` already does) so hand-typed layouts can't drift.
 
-2. **Load failures are completely silent** *(new)*. `Mesh::Load` returns `nullptr` on every failure without logging, and `MeshComponent::Update` quietly skips a null mesh — so a typo in a path just means "Suzanne doesn't appear". Related: `Game.cpp` asks for `models/suzanne/suzanne.gltf` but the folder/file on disk are `Models/suzanne/Suzanne.gltf`. That only works because Windows paths are case-insensitive; on Linux/macOS it would fail with no message.
-   *Possible solution:* log the path and the `cgltf_result` (or "file not found") at each early return; make the path in `Game.cpp` match the on-disk casing (or rename the folder to lowercase `models`).
+2. **The normal matrix is recomputed per vertex on the GPU** *(new)*. `mat3(transpose(inverse(uModel)))` runs a 4×4 inverse for every vertex, every frame, though it's identical for all vertices of a draw.
+   *Possible solution:* compute it once per draw on the CPU (`glm::transpose(glm::inverse(glm::mat3(model)))`) and upload it as `uNormalMatrix` (needs a `mat3` `SetUniform` overload).
 
-3. **`Texture::Init` hard-codes `GL_RGB`** *(new — from the 3 Oct commit)*. `numChannels` from stb_image is stored but ignored, so an RGBA or greyscale PNG would upload garbage. All current PNGs happen to be RGB. Separately, RGB rows whose byte width isn't a multiple of 4 need `glPixelStorei(GL_UNPACK_ALIGNMENT, 1)`.
-   *Possible solution:* pick the format from `numChannels` (1 → `GL_RED`, 3 → `GL_RGB`, 4 → `GL_RGBA`) and set the unpack alignment to 1 before `glTexImage2D`.
+3. **No light means a black scene** *(new)*. If `lights` is empty, `uLight` is never set and stays zero, so every lit object renders black. Faces pointing away from the light are also pure black, since there's no ambient term yet (likely a later lesson).
+   *Possible solution:* when there are no lights, upload a sensible default (e.g. a white light at the camera).
 
-4. **`Mesh::Load` only ever loads the first triangle primitive** *(new, by design for now)*. Multi-mesh or multi-material models will be missing parts. Not a bug for Suzanne — note as a TODO for when a model needs it.
+4. **`Mesh` never frees its GL objects** *(open since 10 Oct)*. No `~Mesh()`, so VAO/VBO/EBO leak.
+   *Possible solution:* add `~Mesh()` calling `glDeleteVertexArrays`/`glDeleteBuffers` on non-zero handles, like `~Texture()`.
 
-5. **The camera's hand-built world matrix only strips its own scale, not its parent's** *(open since 24 Sept)*. `GetViewMatrix()` still multiplies in `GetParent()->GetWorldTransform()`, scale and all.
-   *Possible solution:* unchanged — either build position+rotation only up the whole parent chain, or accept ancestor scale and just use `GetWorldTransform()`.
+5. **Load failures are silent; Suzanne's path casing only works on Windows** *(open since 10 Oct)*. `Mesh::Load` returns `nullptr` without logging; `Game.cpp` asks for `models/suzanne/suzanne.gltf` but disk has `Models/suzanne/Suzanne.gltf`.
+   *Possible solution:* log path and reason at each early return; match the casing.
 
-6. **Direct uniform-pushing around `Material`** *(open four commits running)* — `RenderQueue::Draw` still sets `uModel`/`uView`/`uProjection` straight on the shader program.
-   *Possible solution:* unchanged — `glm::mat4` overload for `Material::SetParam`, route per-draw uniforms through `Bind()`.
+6. **`Texture::Init` hard-codes `GL_RGB`** *(open since 3 Oct)*. RGBA or greyscale images would upload garbage.
+   *Possible solution:* choose the format from `numChannels`; set `GL_UNPACK_ALIGNMENT` to 1.
 
-7. **Mouse "old" position still gets shifted in two places per frame** *(open three commits running)* — in `cursorPositionCallback` and again at the end of `Engine::Run()`.
-   *Possible solution:* unchanged — do the shift in exactly one place.
+7. **`Mesh::Load` only loads the first triangle primitive** *(by design for now)* — TODO for multi-part models.
 
-*Closed since last update:* mouse-look framerate dependence — `* deltaTime` was removed from both look angles in the 1 Oct parent/child commit.
+8. **The camera's hand-built world matrix only strips its own scale, not its parent's** *(open since 24 Sept)*.
+   *Possible solution:* build position+rotation only up the whole chain, or accept ancestor scale and use `GetWorldTransform()`.
+
+9. **Direct uniform-pushing around `Material`** *(open five commits running, and growing)* — `RenderQueue::Draw` now sets the light uniforms straight on the shader too.
+   *Possible solution:* route per-draw uniforms through `Material`/`Bind()`.
+
+10. **Mouse "old" position shifted in two places per frame** *(open four commits running)* — in `cursorPositionCallback` and at the end of `Engine::Run()`.
+    *Possible solution:* do the shift in exactly one place.
 
 ## Commit log
 
@@ -116,3 +118,4 @@ More "code review" than "learning exercise" — real gaps or bugs, each with one
 | 2026-10-01 | Parent/child + component test scene — added `RotatingComponent`, exercised nested transforms in `Game::Init()`, and removed `deltaTime` from mouse-look (closing the framerate-dependence review item). |
 | 2026-10-03 | JSON materials, textures, and an assets pipeline — added `io::FileSystem`, `graphics::Texture` (stb_image), `ShaderProgram::SetTexture()`, texture params and JSON `Material::Load()`; `TestObject` became a UV-mapped brick cube; vendored stb_image + nlohmann/json; CMake copies `assets/` next to the binary. |
 | 2026-10-10 | glTF model loading — added `Mesh::Load()` via cgltf, attribute-slot constants on `VertexElement`, Suzanne model + material spawned in `Game::Init()`; shaders simplified to a single `baseColorTexture`; `Mesh` takes indices by `const&`. |
+| 2026-10-12 | Diffuse point lighting — `LightComponent`, `LightData`/`CameraData` in `Common.h`, `Scene::CollectLights()`, light uniforms in `RenderQueue::Draw`; normals in the vertex layout, glTF loader and new `Mesh::CreateCube()`; Lambert diffuse in the shaders; `GameObject::GetWorldPosition()`. |

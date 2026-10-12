@@ -33,7 +33,13 @@ bool Game::Init()
 
     auto suzanneObj = m_scene->CreateObject("Suzanne");
     suzanneObj->AddComponent(new eng::MeshComponent(suzanneMesh, suzanneMaterial));
-    suzanneObj->SetPosition(glm::vec3(0.0f, 0.0f, 0.0f));
+    suzanneObj->SetPosition(glm::vec3(0.0f, -8.0f, -6.0f));
+
+    auto light = m_scene->CreateObject("Ligth");
+    auto lightcomp = new eng::LightComponent();
+    lightcomp->SetColor(glm::vec3(1.0f));
+    light->AddComponent(lightcomp);
+    light->SetPosition(glm::vec3(0.0f, 0.0f, 10.0f));
 
     eng::Engine::GetInstance().SetScene(m_scene);
 

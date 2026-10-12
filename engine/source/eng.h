@@ -17,4 +17,5 @@
 #include "scene/components/CameraComponent.h"
 #include "scene/components/PlayerControllerComponent.h"
 #include "scene/components/RotatingComponent.h"
+#include "scene/components/LightComponent.h"
 #include "io/FileSystem.h"

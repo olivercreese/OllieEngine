@@ -44,8 +44,11 @@ set(PROJECT_SOURCE_FILES
 	source/scene/components/PlayerControllerComponent.cpp
 	source/scene/components/RotatingComponent.h
 	source/scene/components/RotatingComponent.cpp
+	source/scene/components/LightComponent.h
+	source/scene/components/LightComponent.cpp
 	source/io/FileSystem.h
 	source/io/FileSystem.cpp
+	source/Common.h
 )
 
 # Group files according to files organization

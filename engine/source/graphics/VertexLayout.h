@@ -15,6 +15,7 @@ namespace eng
         static constexpr int positionIndex = 0;
         static constexpr int colourIndex = 1;
         static constexpr int UVIndex = 2;
+        static constexpr int NormalIndex = 3;
     };
     struct VertexLayout
     {
