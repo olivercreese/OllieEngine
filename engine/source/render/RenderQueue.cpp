@@ -20,6 +20,7 @@ namespace eng
             shaderProgram->SetUniform("uModel", command.modelMatrix);
             shaderProgram->SetUniform("uView", cameradata.viewMatrix);
             shaderProgram->SetUniform("uProjection", cameradata.projectionMatrix);
+            shaderProgram->SetUniform("uCameraPos", cameradata.position);
             if (!lights.empty())
             {
                 auto& light = lights[0];

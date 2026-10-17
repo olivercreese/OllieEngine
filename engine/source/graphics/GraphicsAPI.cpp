@@ -107,6 +107,86 @@ namespace eng
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
+    const std::shared_ptr<ShaderProgram>& GraphicsAPI::GetDefaultShaderProgram()
+    {
+        if (!m_defaultShaderProgram)
+        {
+            std::string vertexShaderSource = R"(
+            #version 330 core
+            layout (location = 0) in vec3 position;
+            layout (location = 1) in vec3 color;
+            layout (location = 2) in vec2 uv;
+            layout (location = 3) in vec3 normal;
+
+            out vec2 vUV;
+            out vec3 vNormal;
+            out vec3 vFragPos;
+
+            uniform mat4 uModel;
+            uniform mat4 uView;
+            uniform mat4 uProjection;
+
+
+            void main()
+            {
+                vUV = uv;
+
+                vFragPos = vec3(uModel * vec4(position, 1.0));
+
+                vNormal = mat3(transpose(inverse(uModel))) * normal;
+
+                gl_Position = uProjection * uView * uModel * vec4(position, 1.0);
+            }
+            )";
+
+            std::string fragmentShaderSource = R"(
+            #version 330 core
+
+             struct Light
+             {
+                 vec3 color;
+                 vec3 position;
+             };
+             uniform Light uLight;
+             uniform vec3 uCameraPos;
+             
+             out vec4 FragColor;
+             
+             in vec2 vUV;
+             in vec3 vNormal;
+             in vec3 vFragPos;
+             
+             uniform sampler2D baseColorTexture;
+             
+             void main()
+             {
+                 vec3 norm = normalize(vNormal);
+                 
+                 // diffuse
+                 vec3 lightDir = normalize(uLight.position - vFragPos);
+                 float diff = max(dot(norm, lightDir) , 0.0);
+                 vec3 diffuse = diff * uLight.color;
+
+                 // specular
+                 vec3 viewDir = normalize(uCameraPos - vFragPos);
+                 vec3 reflectDir = reflect(-lightDir, norm);
+                 float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+                 float specularStrength = 0.5;
+                 vec3 specular = specularStrength * spec * uLight.color;
+
+                 vec3 result = diffuse + specular;
+             
+                 vec4 texColor = texture(baseColorTexture, vUV);
+             
+                 FragColor = texColor * vec4(result, 1.0);
+             }
+             )";
+
+            m_defaultShaderProgram = CreateShaderProgram(vertexShaderSource, fragmentShaderSource);
+        }
+        return m_defaultShaderProgram;
+    }
+
     GLuint GraphicsAPI::CreateVertexBuffer(const std::vector<float>& vertices)
     {
         GLuint vbo = 0;

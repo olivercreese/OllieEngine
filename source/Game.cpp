@@ -6,6 +6,7 @@
 bool Game::Init() 
 {
     m_scene = new eng::Scene();
+    eng::Engine::GetInstance().SetScene(m_scene);
 
     auto camera = m_scene->CreateObject("Camera");
     camera->AddComponent(new eng::CameraComponent());
@@ -28,12 +29,13 @@ bool Game::Init()
     cube2->SetScale(glm::vec3(2.0f, 2.0f, 2.0f));
     m_scene->SetParent(cube, cube2);
 
-    auto suzanneMesh = eng::Mesh::Load("models/suzanne/suzanne.gltf");
-    auto suzanneMaterial = eng::Material::Load("materials/suzanne.mat");
+    auto suzanneObject = eng::GameObject::LoadGLTF("models/suzanne/Suzanne.gltf");
+    suzanneObject->SetPosition(glm::vec3(0.0f, -8.0f, -6.0f));
 
-    auto suzanneObj = m_scene->CreateObject("Suzanne");
-    suzanneObj->AddComponent(new eng::MeshComponent(suzanneMesh, suzanneMaterial));
-    suzanneObj->SetPosition(glm::vec3(0.0f, -8.0f, -6.0f));
+    auto gun = eng::GameObject::LoadGLTF("models/sten_gunmachine_carbine/scene.gltf");
+    gun->SetParent(camera);
+    gun->SetPosition(glm::vec3(0.75f, -0.5f, -0.75f));
+    gun->SetScale(glm::vec3(-1.0f, 1.0f, 1.0f));
 
     auto light = m_scene->CreateObject("Ligth");
     auto lightcomp = new eng::LightComponent();
@@ -41,7 +43,6 @@ bool Game::Init()
     light->AddComponent(lightcomp);
     light->SetPosition(glm::vec3(0.0f, 0.0f, 10.0f));
 
-    eng::Engine::GetInstance().SetScene(m_scene);
 
     return true;
 }

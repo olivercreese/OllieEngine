@@ -2,8 +2,8 @@
 #include "graphics/GraphicsAPI.h"
 #include "Engine.h"
 
-#define CGLTF_IMPLEMENTATION
-#include <cgltf.h>
+//#define CGLTF_IMPLEMENTATION
+//#include <cgltf.h>
 
 namespace eng
 {
@@ -125,64 +125,64 @@ namespace eng
 
         std::vector<unsigned int> indices =
         {
-            //front face
+            // front face
             0, 1, 2,
             0, 2, 3,
-            //top face
+            // top face
             4, 5, 6,
             4, 6, 7,
-            //right face
+            // right face
             8, 9, 10,
             8, 10, 11,
-            //left face
+            // left face
             12, 13, 14,
             12, 14, 15,
-            //bottom face
+            // bottom face
             16, 17, 18,
             16, 18, 19,
-            //back face
+            // back face
             20, 21, 22,
             20, 22, 23
         };
 
         eng::VertexLayout vertexLayout;
 
-        //position
+        // Postion
         vertexLayout.elements.push_back({
-            VertexElement::positionIndex,
+            VertexElement::PositionIndex,
             3,
             GL_FLOAT,
             0
             });
-        //colour
+        // Color
         vertexLayout.elements.push_back({
-            VertexElement::colourIndex,
+            VertexElement::ColorIndex,
             3,
             GL_FLOAT,
             sizeof(float) * 3
             });
-        //UV
+        // UV
         vertexLayout.elements.push_back({
             VertexElement::UVIndex,
             2,
             GL_FLOAT,
             sizeof(float) * 6
             });
-        //Normal
+        // Normal
         vertexLayout.elements.push_back({
             VertexElement::NormalIndex,
-            2,
+            3,
             GL_FLOAT,
             sizeof(float) * 8
             });
         vertexLayout.stride = sizeof(float) * 11;
 
         auto result = std::make_shared<eng::Mesh>(vertexLayout, vertices, indices);
-        
+
         return result;
     }
 
-
+#if 0
     std::shared_ptr<Mesh> Mesh::Load(const std::string& path)
     {
         auto contents = Engine::GetInstance().GetFileSystem().LoadAssetFileText(path);
@@ -356,4 +356,5 @@ namespace eng
 
         return result;
     }
+#endif
 }

@@ -28,6 +28,7 @@ namespace eng
     {
         auto obj = new GameObject();
         obj->SetName(name);
+        obj->m_scene = this;
         SetParent(obj, parent);
 
         return obj;

@@ -28,7 +28,16 @@ namespace eng
         glGenTextures(1, &m_textureID);
         glBindTexture(GL_TEXTURE_2D, m_textureID);
 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        GLint internalFormat = GL_RGB;
+        GLenum format = GL_RGB;
+
+        if (numChannels == 4)
+        {
+            internalFormat = GL_RGBA;
+            format = GL_RGBA;
+        }
+
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
 
         glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -63,4 +72,18 @@ namespace eng
 
         return result;
     }
+
+    std::shared_ptr<Texture> TextureManager::GetOrLoadTexture(const std::string& path)
+    {
+        auto it = m_textures.find(path);
+        if (it != m_textures.end())
+        {
+            return it->second;
+        }
+
+        auto texture = Texture::Load(path);
+        m_textures[path] = texture;
+        return texture;
+    }
+
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include <GL/glew.h>
 #include <memory>
+#include <unordered_map>
 #include <string>
 
 namespace eng
@@ -19,5 +20,13 @@ namespace eng
         int m_height = 0;
         int m_numChannels = 0;
         GLuint m_textureID = 0;
+    };
+
+    class TextureManager
+    {
+    public: 
+        std::shared_ptr<Texture> GetOrLoadTexture(const std::string& path);
+    private:
+        std::unordered_map<std::string, std::shared_ptr<Texture>> m_textures;
     };
 }
