@@ -18,4 +18,5 @@
 #include "scene/components/PlayerControllerComponent.h"
 #include "scene/components/RotatingComponent.h"
 #include "scene/components/LightComponent.h"
+#include "scene/components/AnimationComponent.h"
 #include "io/FileSystem.h"
