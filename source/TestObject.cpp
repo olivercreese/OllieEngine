@@ -8,7 +8,8 @@ TestObject::TestObject()
     
     auto material = eng::Material::Load("materials/brick.mat");
     
-    auto mesh = eng::Mesh::CreateCube();
+    glm::vec3 boxExtents = glm::vec3(1.0f);
+    auto mesh = eng::Mesh::CreateBox(boxExtents);
     AddComponent(new eng::MeshComponent(mesh, material));
 }
 

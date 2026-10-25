@@ -9,6 +9,7 @@ namespace eng
     public:
         virtual ~Component() = default;
         virtual void Update(float deltaTime) = 0;
+        virtual void Init();
         virtual size_t GetTypeId() const = 0;
 
         GameObject* GetOwner();

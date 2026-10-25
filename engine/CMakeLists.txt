@@ -48,8 +48,16 @@ set(PROJECT_SOURCE_FILES
 	source/scene/components/LightComponent.cpp
 	source/scene/components/AnimationComponent.h
 	source/scene/components/AnimationComponent.cpp
+	source/scene/components/PhysicsComponent.h
+	source/scene/components/PhysicsComponent.cpp
 	source/io/FileSystem.h
 	source/io/FileSystem.cpp
+	source/physics/PhysicsManager.h
+	source/physics/PhysicsManager.cpp
+	source/physics/Collider.h
+	source/physics/Collider.cpp
+	source/physics/RigidBody.h
+	source/physics/RigidBody.cpp
 	source/Common.h
 )
 
@@ -93,11 +101,23 @@ include_directories(thirdparty/cgltf)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_BINARY_DIR})
 
+# Include bullet as a sub directory
+option(BUILD_UNIT_TESTS OFF)
+option(BUILD_BULLET2_DEMOS OFF)
+option(BUILD_EXTRAS OFF)
+option(BUILD_SHARED_LIBS OFF)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+add_subdirectory(thirdparty/bullet3-3.25)
+target_include_directories(${PROJECT_NAME} PRIVATE thirdparty/bullet3-3.25/src)
+
 # Link all thirdparty libraries
 target_link_libraries(${PROJECT_NAME} 
     glfw 
     glew_s
 	glm
+	LinearMath
+	BulletCollision
+	BulletDynamics
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
