@@ -4,3 +4,11 @@
 /lessons/
 PROJECT_STATUS.md
 gen_proj_vs2022.bat
+/engine/thirdparty/bullet3-3.25/examples/
+/engine/thirdparty/bullet3-3.25/data/
+/engine/thirdparty/bullet3-3.25/test/
+/engine/thirdparty/bullet3-3.25/Extras/
+/engine/thirdparty/bullet3-3.25/docs/
+/engine/thirdparty/bullet3-3.25/build3/
+/engine/thirdparty/bullet3-3.25/.ci/
+/engine/thirdparty/bullet3-3.25/.github/

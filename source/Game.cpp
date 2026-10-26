@@ -91,7 +91,7 @@ bool Game::Init()
     auto boxBody = std::make_shared<eng::RigidBody>(
         eng::BodyType::Dynamic, boxCollider, 5.0f, 0.5f);
     boxObj->AddComponent(new eng::PhysicsComponent(boxBody));
-
+    
     camera->SetPosition(glm::vec3(0.0f, 1.0f, 7.0f));
 
     return true;

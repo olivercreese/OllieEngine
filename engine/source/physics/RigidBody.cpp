@@ -22,7 +22,8 @@ namespace eng
 
         btTransform transform;
         transform.setIdentity();
-        btDefaultMotionState* motionState = new btDefaultMotionState(transform);
+        std::unique_ptr<btDefaultMotionState> motionState = std::make_unique<btDefaultMotionState>(transform);
+
         
         btRigidBody::btRigidBodyConstructionInfo info(
             (m_type == BodyType::Dynamic) ? btScalar(mass) : btScalar(0),
@@ -37,6 +38,7 @@ namespace eng
             m_body->setCollisionFlags(m_body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
             m_body->setActivationState(DISABLE_DEACTIVATION);
         }
+
     }
 
     RigidBody::~RigidBody()
