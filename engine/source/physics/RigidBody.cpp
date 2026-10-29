@@ -22,7 +22,7 @@ namespace eng
 
         btTransform transform;
         transform.setIdentity();
-        std::unique_ptr<btDefaultMotionState> motionState = std::make_unique<btDefaultMotionState>(transform);
+        btDefaultMotionState* motionState = new btDefaultMotionState(transform);
 
         
         btRigidBody::btRigidBodyConstructionInfo info(

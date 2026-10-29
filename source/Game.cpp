@@ -1,21 +1,17 @@
 #include "Game.h"
 #include "TestObject.h"
 #include <glm/gtc/quaternion.hpp>
-
+#include "Player.h"
 
 bool Game::Init() 
 {
     m_scene = new eng::Scene();
     eng::Engine::GetInstance().SetScene(m_scene);
 
-    //////  camera object 
-    auto camera = m_scene->CreateObject("Camera");
-    camera->AddComponent(new eng::CameraComponent());
-    camera->SetPosition(glm::vec3(0.0f, 0.0f, 2.0f));
-    camera->SetRotation(glm::angleAxis(glm::radians(-40.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
-    camera->AddComponent(new eng::PlayerControllerComponent());
+    auto player = m_scene->CreateObject<Player>("Player");
+    player->Init();
 
-    m_scene->SetMainCamera(camera);
+    m_scene->SetMainCamera(player);
     /////
 
     ////// orbiting cubes 
@@ -37,28 +33,6 @@ bool Game::Init()
     auto suzanneObject = eng::GameObject::LoadGLTF("models/suzanne/Suzanne.gltf");
     suzanneObject->SetPosition(glm::vec3(0.0f, -8.0f, -6.0f));
     ///////////
-    
-    ///// gun object 
-    auto gun = eng::GameObject::LoadGLTF("models/sten_gunmachine_carbine/scene.gltf");
-    gun->SetParent(camera);
-    gun->SetPosition(glm::vec3(0.75f, -0.5f, -0.75f));
-    gun->SetScale(glm::vec3(-1.0f, 1.0f, 1.0f));
-    ///gun object animation
-    if (auto anim = gun->GetComponent<eng::AnimationComponent>())
-    {
-        if (auto bullet = gun->FindChildByName("bullet_33"))
-        {
-            bullet->SetActive(false);
-        }
-
-        if (auto fire = gun->FindChildByName("BOOM_35"))
-        {
-            fire->SetActive(false);
-        }
-
-        anim->Play("shoot", false);
-    }
-    //////
     
     //lighting
     auto light = m_scene->CreateObject("light");
@@ -92,8 +66,6 @@ bool Game::Init()
         eng::BodyType::Dynamic, boxCollider, 5.0f, 0.5f);
     boxObj->AddComponent(new eng::PhysicsComponent(boxBody));
     
-    camera->SetPosition(glm::vec3(0.0f, 1.0f, 7.0f));
-
     return true;
 }
 

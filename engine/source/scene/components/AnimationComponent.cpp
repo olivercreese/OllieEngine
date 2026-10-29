@@ -63,6 +63,11 @@ namespace eng
         BuildBindings();
     }
 
+    bool AnimationComponent::IsPlaying() const
+    {
+        return m_isPlaying;
+    }
+
     void AnimationComponent::RegisterClip(const std::string& name, const std::shared_ptr<AnimationClip>& clip)
     {
         m_clips[name] = clip;
